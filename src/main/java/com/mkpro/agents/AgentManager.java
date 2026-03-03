@@ -463,10 +463,34 @@ public class AgentManager {
                        .forEach(p -> p.text().ifPresent(output::append))
                   );
             
-            String resultStr = output.toString();
+                        String resultStr = output.toString();
 
-            
-            logger.log(request.getAgentName(), resultStr);
+            // Modified logging to capture tool usage
+            StringBuilder detailedLog = new StringBuilder();
+            try {
+                java.util.List<?> events = subSession.events();
+                for (Object event : events) {
+                    if (event instanceof com.google.genai.types.Content) {
+                        com.google.genai.types.Content c = (com.google.genai.types.Content) event;
+                        c.role().ifPresent(r -> detailedLog.append("[").append(r).append("] "));
+                        c.parts().ifPresent(parts -> {
+                            for (com.google.genai.types.Part p : parts) {
+                                p.text().ifPresent(t -> detailedLog.append(t).append("\n"));
+                                p.functionCall().ifPresent(fc -> detailedLog.append("[Tool Call: ").append(fc).append("]\n"));
+                                p.functionResponse().ifPresent(fr -> detailedLog.append("[Tool Result: ").append(fr).append("]\n"));
+                            }
+                        });
+                    } else {
+                        detailedLog.append(event.toString()).append("\n");
+                    }
+                    detailedLog.append("\n");
+                }
+            } catch (Exception e) {
+                 detailedLog.append("Error capturing detailed log: ").append(e.getMessage());
+            }
+
+            String logContent = detailedLog.length() > 0 ? detailedLog.toString() : resultStr;
+            logger.log(request.getAgentName(), logContent);
 
             
             return resultStr;
