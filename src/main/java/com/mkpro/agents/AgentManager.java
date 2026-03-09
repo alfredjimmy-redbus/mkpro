@@ -30,6 +30,7 @@ import com.mkpro.models.AgentStat;
 import com.mkpro.models.Provider;
 import com.mkpro.models.RunnerType;
 import com.mkpro.tools.MkProTools;
+import com.mkpro.tools.McpServerConnectTools;
 import com.mkpro.ActionLogger;
 import com.mkpro.CentralMemory;
 
@@ -146,6 +147,8 @@ public class AgentManager {
         List<BaseTool> codeEditorTools = new ArrayList<>();
         codeEditorTools.add(MkProTools.createSafeWriteFileTool());
         codeEditorTools.add(MkProTools.createReadFileTool());
+        codeEditorTools.add(McpServerConnectTools.createScanProjectTool());
+        codeEditorTools.add(McpServerConnectTools.createSaveComponentTool());
 
         List<BaseTool> coderTools = new ArrayList<>();
         coderTools.add(MkProTools.createReadFileTool());
@@ -154,6 +157,9 @@ public class AgentManager {
         coderTools.add(MkProTools.createReadImageTool());
         coderTools.add(MkProTools.createReadClipboardTool());
         coderTools.add(MkProTools.createImageCropTool());
+        coderTools.add(McpServerConnectTools.createScanProjectTool());
+        coderTools.add(McpServerConnectTools.createSaveComponentTool());
+        coderTools.add(McpServerConnectTools.createMcpFetchDesignTool(centralMemory));
         if (vectorStore != null && embeddingService != null) {
             coderTools.add(MkProTools.createSearchCodebaseTool(vectorStore, embeddingService));
         }
@@ -184,6 +190,12 @@ public class AgentManager {
         architectTools.add(MkProTools.createReadFileTool());
         architectTools.add(MkProTools.createListDirTool());
         architectTools.add(MkProTools.createReadImageTool());
+        architectTools.add(McpServerConnectTools.createMcpConnectTool(centralMemory));
+        architectTools.add(McpServerConnectTools.createMcpFetchDesignTool(centralMemory));
+        architectTools.add(McpServerConnectTools.createScanProjectTool());
+        architectTools.add(McpServerConnectTools.createSaveComponentTool());
+        architectTools.add(McpServerConnectTools.createOpenComponentPreviewTool());
+        architectTools.add(McpServerConnectTools.createListComponentsTool());
         if (vectorStore != null && embeddingService != null) {
             architectTools.add(MkProTools.createSearchCodebaseTool(vectorStore, embeddingService));
             architectTools.add(MkProTools.createMultiProjectSearchTool(embeddingService));
@@ -307,13 +319,25 @@ public class AgentManager {
         coordinatorTools.add(MkProTools.createSaveMemoryTool(centralMemory));
         coordinatorTools.add(MkProTools.createReadMemoryTool(centralMemory));
         coordinatorTools.add(MkProTools.createListProjectsTool(centralMemory));
-        coordinatorTools.add(MkProTools.createListDirTool()); // Allow coordinator to list dirs too
+        coordinatorTools.add(MkProTools.createListDirTool());
+
+        // MCP Server Connect tools for design-to-code workflows
+        coordinatorTools.add(McpServerConnectTools.createListMcpServersTool(centralMemory));
+        coordinatorTools.add(McpServerConnectTools.createMcpConnectTool(centralMemory));
+        coordinatorTools.add(McpServerConnectTools.createMcpFetchDesignTool(centralMemory));
+        coordinatorTools.add(McpServerConnectTools.createScanProjectTool());
+        coordinatorTools.add(McpServerConnectTools.createSaveComponentTool());
+        coordinatorTools.add(McpServerConnectTools.createOpenComponentPreviewTool());
+        coordinatorTools.add(McpServerConnectTools.createListComponentsTool());
+
+        String mcpContext = McpServerConnectTools.buildMcpContextForAgent(centralMemory);
 
         LlmAgent coordinatorAgent = LlmAgent.builder()
             .name("Coordinator")
             .description(coordDef.getDescription())
             .instruction(coordDef.getInstruction()
                     + contextInfo
+                    + mcpContext
                     + summaryContext)
             .model(model)
             .tools(coordinatorTools)
