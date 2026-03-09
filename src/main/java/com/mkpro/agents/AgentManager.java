@@ -141,6 +141,10 @@ public class AgentManager {
         AgentConfig coordConfig = agentConfigs.get("Coordinator");
         BaseLlm model = createModel(coordConfig);
         AgentDefinition coordDef = agentDefinitions.get("Coordinator");
+        
+        String username = System.getProperty("user.name");
+
+        String APP_NAME="mkpro-"+username;
 
         // Core Tools
         // ... (tools logic stays same)
@@ -344,7 +348,7 @@ public class AgentManager {
             .planning(true)
             .build();
 
-        return buildRunner(coordinatorAgent, "mkpro");
+        return buildRunner(coordinatorAgent, APP_NAME);
     }
 
     private BaseTool createDelegationToolFromDef(String agentName, String toolName, 
@@ -447,6 +451,10 @@ public class AgentManager {
         boolean success = true;
         StringBuilder output = new StringBuilder();
         
+        String username = System.getProperty("user.name");
+
+        String APP_NAME="mkpro-"+username;
+        
         // Log start of execution to persistent logs
         String executionInfo = String.format("Delegating task to %s (%s/%s)...", 
             request.getAgentName(), request.getProvider(), request.getModelName());
@@ -471,12 +479,12 @@ public class AgentManager {
                 .build();
 
             // 1. Build the runner (which might create its own SessionService)
-            Runner subRunner = buildRunner(subAgent, "mkpro");
+            Runner subRunner = buildRunner(subAgent, APP_NAME);
 
             // 2. Use the runner's session service to create the session
             // This ensures the session exists in the correct store (InMemory, MapDB, Postgres)
             // Use agent name as the user name for better attribution
-            Session subSession = subRunner.sessionService().createSession("mkpro", request.getAgentName()).blockingGet();
+            Session subSession = subRunner.sessionService().createSession(APP_NAME, request.getAgentName()).blockingGet();
 
             Content content = Content.builder().role("user").parts(List.of(Part.fromText(request.getUserPrompt()))).build();
             
@@ -487,10 +495,34 @@ public class AgentManager {
                        .forEach(p -> p.text().ifPresent(output::append))
                   );
             
-            String resultStr = output.toString();
+                        String resultStr = output.toString();
 
-            
-            logger.log(request.getAgentName(), resultStr);
+            // Modified logging to capture tool usage
+            StringBuilder detailedLog = new StringBuilder();
+            try {
+                java.util.List<?> events = subSession.events();
+                for (Object event : events) {
+                    if (event instanceof com.google.genai.types.Content) {
+                        com.google.genai.types.Content c = (com.google.genai.types.Content) event;
+                        c.role().ifPresent(r -> detailedLog.append("[").append(r).append("] "));
+                        c.parts().ifPresent(parts -> {
+                            for (com.google.genai.types.Part p : parts) {
+                                p.text().ifPresent(t -> detailedLog.append(t).append("\n"));
+                                p.functionCall().ifPresent(fc -> detailedLog.append("[Tool Call: ").append(fc).append("]\n"));
+                                p.functionResponse().ifPresent(fr -> detailedLog.append("[Tool Result: ").append(fr).append("]\n"));
+                            }
+                        });
+                    } else {
+                        detailedLog.append(event.toString()).append("\n");
+                    }
+                    detailedLog.append("\n");
+                }
+            } catch (Exception e) {
+                 detailedLog.append("Error capturing detailed log: ").append(e.getMessage());
+            }
+
+            String logContent = detailedLog.length() > 0 ? detailedLog.toString() : resultStr;
+            logger.log(request.getAgentName(), logContent);
 
             
             return resultStr;
