@@ -30,6 +30,7 @@ import com.mkpro.models.AgentStat;
 import com.mkpro.models.Provider;
 import com.mkpro.models.RunnerType;
 import com.mkpro.tools.MkProTools;
+import com.mkpro.tools.McpServerConnectTools;
 import com.mkpro.ActionLogger;
 import com.mkpro.CentralMemory;
 import com.mkpro.SessionHelper;
@@ -152,326 +153,201 @@ public class AgentManager {
         String contextInfo = "\n\nCurrent Date: " + LocalDate.now() +
                              "\nCurrent Working Directory: " + Paths.get("").toAbsolutePath() + "\n";
 
+        boolean hasEnabledMcpServers = !centralMemory.getEnabledMcpServers().isEmpty();
+
         // Heuristic Tool Assignment
         Map<String, List<BaseTool>> toolMap = new HashMap<>();
         
+        // 1. Code Editor Tools
+        List<BaseTool> codeEditorTools = new ArrayList<>();
+        codeEditorTools.add(MkProTools.createSafeWriteFileTool());
+        codeEditorTools.add(MkProTools.createReadFileTool());
+        codeEditorTools.add(McpServerConnectTools.createScanProjectTool());
+        codeEditorTools.add(McpServerConnectTools.createSaveComponentTool());
+
+        // 2. Coder Tools
         List<BaseTool> coderTools = new ArrayList<>();
         coderTools.add(MkProTools.createReadFileTool());
         coderTools.add(MkProTools.createListDirTool());
         coderTools.add(MkProTools.createReadImageTool());
         coderTools.add(MkProTools.createReadClipboardTool());
         coderTools.add(MkProTools.createImageCropTool());
+        coderTools.add(McpServerConnectTools.createScanProjectTool());
+        coderTools.add(McpServerConnectTools.createSaveComponentTool());
+        if (hasEnabledMcpServers) {
+            coderTools.add(McpServerConnectTools.createMcpFetchDesignTool(centralMemory));
+        }
         if (vectorStore != null && embeddingService != null) {
              coderTools.add(MkProTools.createSearchCodebaseTool(vectorStore, embeddingService));
         }
 
+        // 3. SysAdmin Tools
         List<BaseTool> sysAdminTools = new ArrayList<>();
         sysAdminTools.add(MkProTools.createRunShellTool());
         sysAdminTools.add(MkProTools.createImageCropTool());
         sysAdminTools.add(com.mkpro.tools.BackgroundJobTools.createListBackgroundJobsTool());
         sysAdminTools.add(com.mkpro.tools.BackgroundJobTools.createKillBackgroundJobTool());
-        
-        List<BaseTool> codeEditorTools = new ArrayList<>();
-        codeEditorTools.add(MkProTools.createWriteFileTool());
-        codeEditorTools.add(MkProTools.createReadFileTool());
 
-        for (String agentName : agentConfigs.keySet()) {
-            if ("Coordinator".equals(agentName)) continue;
+        // 4. Tester Tools
+        List<BaseTool> testerTools = new ArrayList<>();
+        testerTools.addAll(coderTools);
+        testerTools.add(MkProTools.createRunShellTool());
 
-            List<BaseTool> toolsForAgent = new ArrayList<>();
-            
-            if (agentName.contains("SysAdmin")) {
-                toolsForAgent.addAll(sysAdminTools);
-            } else if (agentName.contains("Tester")) {
-                toolsForAgent.addAll(coderTools);
-                toolsForAgent.addAll(sysAdminTools);
-            } else if (agentName.contains("DocWriter")) {
-                toolsForAgent.addAll(coderTools);
-            } else if (agentName.contains("SecurityAuditor")) {
-                toolsForAgent.addAll(coderTools);
-                toolsForAgent.add(MkProTools.createRunShellTool());
-            } else if (agentName.contains("Architect")) {
-                toolsForAgent.add(MkProTools.createReadFileTool());
-                toolsForAgent.add(MkProTools.createListDirTool());
-            } else if (agentName.contains("DevOps")) {
-                toolsForAgent.add(MkProTools.createRunShellTool());
-                toolsForAgent.add(MkProTools.createReadFileTool());
-            } else if (agentName.contains("DataAnalyst")) {
-                toolsForAgent.add(MkProTools.createRunShellTool());
-                toolsForAgent.add(MkProTools.createReadFileTool());
-            } else if (agentName.contains("CodeEditor")) {
-                toolsForAgent.addAll(codeEditorTools);
-            } else {
-                // Default fallback for any other "Coder" or custom agent (e.g. JavaCoder, PythonCoder)
-                // They get the standard coder toolset
-                toolsForAgent.addAll(coderTools);
-            }
-            
-            toolMap.put(agentName, toolsForAgent);
-        }
+        // 5. DocWriter Tools
+        List<BaseTool> docWriterTools = new ArrayList<>();
+        docWriterTools.add(MkProTools.createReadFileTool());
+        docWriterTools.add(MkProTools.createWriteFileTool());
+        docWriterTools.add(MkProTools.createListDirTool());
 
-        toolMap.forEach((name, tools) -> {
-            AgentConfig config = agentConfigs.get(name);
-            if (config != null && config.getProvider() == Provider.GEMINI) {
-                tools.add(MkProTools.createGoogleSearchTool());
-                tools.add(MkProTools.createUrlFetchTool());
-            }
-        });
-
-        // Delegation Tools
-        List<BaseTool> coordinatorTools = new ArrayList<>();
-        
-        // Coder Sub-Agents
-        BaseTool codeEditorTool = createDelegationToolFromDef("CodeEditor", "ask_code_editor", agentConfigs, codeEditorTools, contextInfo);
-        if (codeEditorTool != null) {
-            coordinatorTools.add(codeEditorTool);
-            // We don't necessarily need to add CodeEditor to every "Coder" anymore if they are specialized
-            // But let's keep it available to anyone with 'coderTools' just in case? 
-            // Actually, best to let Coordinator handle delegation to Editor or specialized coders handle it.
-            // For simplicity in this refactor, we won't auto-inject ask_code_editor into every agent yet.
-        }
-
-        // Add delegation tools for ALL agents found in the config
-        for (String agentName : toolMap.keySet()) {
-            // Skip CodeEditor as it's already added or special
-            if ("CodeEditor".equals(agentName)) continue;
-
-            String toolName = "ask_" + agentName.replaceAll("([a-z])([A-Z]+)", "$1_$2").toLowerCase();
-            BaseTool tool = createDelegationToolFromDef(agentName, toolName, agentConfigs, toolMap.get(agentName), contextInfo);
-            if (tool != null) {
-                coordinatorTools.add(tool);
-            }
-        }
-
-        // Add Coordinator-specific tools
-        if (vectorStore != null && embeddingService != null) {
-            coordinatorTools.add(MkProTools.createSearchCodebaseTool(vectorStore, embeddingService));
-        }
+        // 6. SecurityAuditor Tools
+        List<BaseTool> securityAuditorTools = new ArrayList<>();
+        securityAuditorTools.addAll(coderTools);
+        securityAuditorTools.add(MkProTools.createRunShellTool());
         if (embeddingService != null) {
-            coordinatorTools.add(MkProTools.createMultiProjectSearchTool(embeddingService));
+            securityAuditorTools.add(MkProTools.createMultiProjectSearchTool(embeddingService));
         }
-        coordinatorTools.add(MkProTools.createUrlFetchTool());
+
+        // 7. Architect Tools
+        List<BaseTool> architectTools = new ArrayList<>();
+        architectTools.add(MkProTools.createReadFileTool());
+        architectTools.add(MkProTools.createListDirTool());
+        architectTools.add(MkProTools.createReadImageTool());
+        architectTools.add(McpServerConnectTools.createScanProjectTool());
+        architectTools.add(McpServerConnectTools.createSaveComponentTool());
+        if (hasEnabledMcpServers) {
+            architectTools.add(McpServerConnectTools.createMcpConnectTool(centralMemory));
+            architectTools.add(McpServerConnectTools.createMcpFetchDesignTool(centralMemory));
+        }
+
+        // 8. DevOps Tools
+        List<BaseTool> devOpsTools = new ArrayList<>();
+        devOpsTools.add(MkProTools.createRunShellTool());
+        devOpsTools.add(MkProTools.createReadFileTool());
+        devOpsTools.add(MkProTools.createListDirTool());
+        devOpsTools.add(com.mkpro.tools.BackgroundJobTools.createListBackgroundJobsTool());
+
+        // 9. DataAnalyst Tools
+        List<BaseTool> dataAnalystTools = new ArrayList<>();
+        dataAnalystTools.add(MkProTools.createReadFileTool());
+        dataAnalystTools.add(MkProTools.createListDirTool());
+
+        // 10. GoalTracker Tools
+        List<BaseTool> goalTrackerTools = new ArrayList<>();
+        goalTrackerTools.add(MkProTools.createReadFileTool());
+        goalTrackerTools.add(MkProTools.createWriteFileTool());
+
+        // 11. Web Tools
+        List<BaseTool> webTools = new ArrayList<>();
         if (coordConfig.getProvider() == Provider.GEMINI) {
-             coordinatorTools.add(MkProTools.createGoogleSearchTool());
+            webTools.add(MkProTools.createGoogleSearchTool(apiKey));
+            webTools.add(MkProTools.createUrlFetchTool());
         }
-        coordinatorTools.add(MkProTools.createReadClipboardTool());
-        coordinatorTools.add(MkProTools.createGetActionLogsTool(logger));
-        coordinatorTools.add(MkProTools.createSaveMemoryTool(centralMemory));
-        coordinatorTools.add(MkProTools.createReadMemoryTool(centralMemory));
-        coordinatorTools.add(MkProTools.createListProjectsTool(centralMemory));
-        coordinatorTools.add(MkProTools.createListDirTool()); // Allow coordinator to list dirs too
 
-        LlmAgent coordinatorAgent = LlmAgent.builder()
-            .name("Coordinator")
-            .description(coordDef.getDescription())
-            .instruction(coordDef.getInstruction()
-                    + contextInfo
-                    + summaryContext)
-            .model(model)
-            .tools(coordinatorTools)
-            .planning(true)
-            .build();
+        // Assigning tools to roles
+        for (String role : agentConfigs.keySet()) {
+            if (role.equals("Coordinator")) continue;
 
-        return buildRunner(coordinatorAgent, APP_NAME);
-    }
+            List<BaseTool> tools = new ArrayList<>();
+            if (role.contains("CodeEditor")) {
+                tools.addAll(codeEditorTools);
+            } else if (role.contains("Coder") || role.contains("SoftwareEngineer")) {
+                tools.addAll(coderTools);
+            } else if (role.contains("Tester") || role.contains("QA")) {
+                tools.addAll(testerTools);
+            } else if (role.contains("DocWriter") || role.contains("TechnicalWriter")) {
+                tools.addAll(docWriterTools);
+            } else if (role.contains("SecurityAuditor")) {
+                tools.addAll(securityAuditorTools);
+            } else if (role.contains("Architect")) {
+                tools.addAll(architectTools);
+            } else if (role.contains("DevOps")) {
+                tools.addAll(devOpsTools);
+            } else if (role.contains("DataAnalyst")) {
+                tools.addAll(dataAnalystTools);
+            } else if (role.contains("GoalTracker")) {
+                tools.addAll(goalTrackerTools);
+            } else if (role.contains("SysAdmin") || role.contains("Terminal")) {
+                tools.addAll(sysAdminTools);
+            }
+            
+            if (role.contains("Researcher") || role.contains("Web")) {
+                tools.addAll(webTools);
+            }
 
-    private BaseTool createDelegationToolFromDef(String agentName, String toolName, 
-                                                 Map<String, AgentConfig> agentConfigs, 
-                                                 List<BaseTool> subAgentTools,
-                                                 String contextInfo) {
-        AgentDefinition def = agentDefinitions.get(agentName);
-        if (def == null) {
-            // Silently skip missing agents
-            return null;
+            toolMap.put(role, tools);
         }
-        return createDelegationTool(toolName, def.getDescription(), agentName, BASE_AGENT_POLICY + "\n" + def.getInstruction(), agentConfigs, subAgentTools, contextInfo);
-    }
 
-    private Runner buildRunner(LlmAgent agent, String appName) {
+        Runner runner;
         switch (runnerType) {
-            case MAP_DB:
-                try {
-                    return MapDbRunner.builder()
-                        .agent(agent)
-                        .appName(appName)
-                        .build();
-                } catch (Exception e) {
-                    System.err.println("Error creating MapDbRunner: " + e.getMessage());
-                    // Fallback to InMemory
-                }
             case POSTGRES:
-                try {
-                    return new PostgresRunner(  agent,   appName);
-                } catch (Exception e) {
-                    System.err.println("Error creating PostgresRunner: " + e.getMessage());
-                    // Fallback to InMemory
-                }
+                runner = PostgresRunner.builder()
+                        .sessionService(sessionService)
+                        .artifactService(artifactService)
+                        .memoryService(memoryService)
+                        .build();
+                break;
+            case MAPDB:
+                runner = MapDbRunner.builder()
+                        .sessionService(sessionService)
+                        .artifactService(artifactService)
+                        .memoryService(memoryService)
+                        .build();
+                break;
             case IN_MEMORY:
             default:
-                return Runner.builder()
-                    .agent(agent)
-                    .appName(appName)
-                    .sessionService(sessionService)
-                    .artifactService(artifactService)
-                    .memoryService(memoryService)
-                    .build();
+                runner = InMemoryRunner.builder()
+                        .sessionService(sessionService)
+                        .artifactService(artifactService)
+                        .memoryService(memoryService)
+                        .build();
+                break;
         }
+
+        for (Map.Entry<String, AgentConfig> entry : agentConfigs.entrySet()) {
+            String agentName = entry.getKey();
+            AgentConfig config = entry.getValue();
+            AgentDefinition def = agentDefinitions.get(agentName);
+            
+            if (def == null) continue;
+
+            BaseLlm agentModel = (agentName.equals("Coordinator")) ? model : createModel(config);
+            
+            String agentInstructions = def.getInstructions();
+            if (agentName.equals("Coordinator") && summaryContext != null) {
+                agentInstructions += "\n\nContext from previous session:\n" + summaryContext;
+            }
+            
+            agentInstructions += contextInfo;
+
+            LlmAgent agent = LlmAgent.builder()
+                    .name(agentName)
+                    .model(agentModel)
+                    .instructions(BASE_AGENT_POLICY + "\nRole: " + def.getRole() + "\n\n" + agentInstructions)
+                    .tools(toolMap.getOrDefault(agentName, Collections.emptyList()))
+                    .build();
+            
+            runner.addAgent(agent);
+        }
+
+        return runner;
     }
 
     private BaseLlm createModel(AgentConfig config) {
         if (config.getProvider() == Provider.GEMINI) {
-            return new Gemini(config.getModelName(), apiKey);
+            return Gemini.builder()
+                    .apiKey(apiKey)
+                    .modelName(config.getModel())
+                    .build();
+        } else if (config.getProvider() == Provider.OLLAMA) {
+            return OllamaBaseLM.builder()
+                    .baseUrl(ollamaServerUrl)
+                    .modelName(config.getModel())
+                    .build();
         } else if (config.getProvider() == Provider.BEDROCK) {
-            return new BedrockBaseLM(config.getModelName(), null);
-        } else {
-            return new OllamaBaseLM(config.getModelName(), ollamaServerUrl);
+            return BedrockBaseLM.builder()
+                    .modelName(config.getModel())
+                    .build();
         }
-    }
-
-    private BaseTool createDelegationTool(String toolName, String description, String agentName, 
-                                          String agentInstruction,
-                                          Map<String, AgentConfig> agentConfigs, 
-                                          List<BaseTool> subAgentTools,
-                                          String contextInfo) {
-        return new BaseTool(toolName, description) {
-            @Override
-            public Optional<FunctionDeclaration> declaration() {
-                return Optional.of(FunctionDeclaration.builder()
-                        .name(name())
-                        .description(description())
-                        .parameters(Schema.builder()
-                                .type("OBJECT")
-                                .properties(ImmutableMap.of(
-                                        "instruction", Schema.builder().type("STRING").description("Instructions for " + agentName + ".").build()
-                                ))
-                                .required(ImmutableList.of("instruction"))
-                                .build())
-                        .build());
-            }
-
-            @Override
-            public Single<Map<String, Object>> runAsync(Map<String, Object> args, ToolContext toolContext) {
-                String instruction = (String) args.get("instruction");
-                System.out.println(ANSI_BLUE + ">> Delegating to " + agentName + "..." + ANSI_RESET);
-                AgentConfig config = agentConfigs.get(agentName);
-                
-                return Single.fromCallable(() -> {
-                    String result = executeSubAgent(new AgentRequest(
-                        agentName, 
-                        agentInstruction + contextInfo,
-                        config.getModelName(),
-                        config.getProvider(),
-                        instruction,
-                        subAgentTools
-                    ));
-                    return Collections.singletonMap("result", result);
-                });
-            }
-        };
-    }
-
-    private String executeSubAgent(AgentRequest request) {
-        long startTime = System.currentTimeMillis();
-        boolean success = true;
-        StringBuilder output = new StringBuilder();
-        
-        String username = System.getProperty("user.name");
-
-        String APP_NAME="mkpro-"+username;
-        
-        // Log start of execution to persistent logs
-        String executionInfo = String.format("Delegating task to %s (%s/%s)...", 
-            request.getAgentName(), request.getProvider(), request.getModelName());
-        logger.log("SYSTEM", executionInfo);
-
-        try {
-            AgentConfig config = new AgentConfig(request.getProvider(), request.getModelName());
-            BaseLlm model = createModel(config);
-            
-            // Inject identity into state memory (instruction)
-            String augmentedInstruction = request.getInstruction() + 
-                "\n\n[System State: Running on Provider: " + request.getProvider() + 
-                ", Model: " + request.getModelName() + "]" +
-                "\n\nNOTE: You do not have direct access to action logs. If you need historical context or logs to complete a task, state this clearly in your final report so the Coordinator can provide it in the next turn.";
-
-            LlmAgent subAgent = LlmAgent.builder()
-                .name(request.getAgentName())
-                .instruction(augmentedInstruction)
-                .model(model)
-                .tools(request.getTools())
-                .planning(true)
-                .build();
-
-            // 1. Build the runner (which might create its own SessionService)
-            Runner subRunner = buildRunner(subAgent, APP_NAME);
-
-            // 2. Use the runner's session service to create the session
-            // This ensures the session exists in the correct store (InMemory, MapDB, Postgres)
-            // Use agent name as the user name for better attribution
-            Session subSession = SessionHelper.createSession(subRunner.sessionService(), request.getAgentName()).blockingGet();
-
-            Content content = Content.builder().role("user").parts(List.of(Part.fromText(request.getUserPrompt()))).build();
-            
-            subRunner.runAsync(request.getAgentName(), subSession.id(), content)
-                  .filter(e -> e.content().isPresent())
-                  .blockingForEach(e -> 
-                      e.content().flatMap(Content::parts).orElse(Collections.emptyList())
-                       .forEach(p -> p.text().ifPresent(output::append))
-                  );
-            
-                        String resultStr = output.toString();
-
-            // Modified logging to capture tool usage
-            StringBuilder detailedLog = new StringBuilder();
-            try {
-                java.util.List<?> events = subSession.events();
-                for (Object event : events) {
-                    if (event instanceof com.google.genai.types.Content) {
-                        com.google.genai.types.Content c = (com.google.genai.types.Content) event;
-                        c.role().ifPresent(r -> detailedLog.append("[").append(r).append("] "));
-                        c.parts().ifPresent(parts -> {
-                            for (com.google.genai.types.Part p : parts) {
-                                p.text().ifPresent(t -> detailedLog.append(t).append("\n"));
-                                p.functionCall().ifPresent(fc -> detailedLog.append("[Tool Call: ").append(fc).append("]\n"));
-                                p.functionResponse().ifPresent(fr -> detailedLog.append("[Tool Result: ").append(fr).append("]\n"));
-                            }
-                        });
-                    } else {
-                        detailedLog.append(event.toString()).append("\n");
-                    }
-                    detailedLog.append("\n");
-                }
-            } catch (Exception e) {
-                 detailedLog.append("Error capturing detailed log: ").append(e.getMessage());
-            }
-
-            String logContent = detailedLog.length() > 0 ? detailedLog.toString() : resultStr;
-            logger.log(request.getAgentName(), logContent);
-
-            
-            return resultStr;
-        } catch (Exception e) {
-            success = false;
-            return "Error executing sub-agent " + request.getAgentName() + ": " + e.getMessage();
-        } finally {
-            long duration = System.currentTimeMillis() - startTime;
-            int inputLen = request.getUserPrompt().length();
-            int outputLen = output.length();
-            
-            try {
-                AgentStat stat = new AgentStat(
-                    request.getAgentName(), 
-                    request.getProvider().name(), 
-                    request.getModelName(), 
-                    duration, 
-                    success, 
-                    inputLen, 
-                    outputLen
-                );
-                centralMemory.saveAgentStat(stat);
-            } catch (Exception e) {
-                System.err.println("Failed to save agent stats: " + e.getMessage());
-            }
-        }
+        return null;
     }
 }
