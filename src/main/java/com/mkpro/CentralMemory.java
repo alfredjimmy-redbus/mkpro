@@ -5,10 +5,13 @@ import com.mkpro.models.AgentStat;
 import com.mkpro.models.Goal;
 import com.mkpro.models.McpServer;
 import com.mkpro.models.Provider;
+import com.mkpro.utils.PathUtils;
 import org.mapdb.DB;
 import org.mapdb.DBMaker;
 import org.mapdb.Serializer;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
@@ -48,7 +51,14 @@ public class CentralMemory {
 
     @SuppressWarnings("unchecked")
     public CentralMemory() {
-        this.db = DBMaker.fileDB("central_memory.db")
+        Path dbPath = PathUtils.getBaseDocumentsPath().resolve("central_memory.db");
+        try {
+            PathUtils.ensureDirectoriesExist(dbPath);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        this.db = DBMaker.fileDB(dbPath.toString())
                 .closeOnJvmShutdown()
                 .transactionEnable()
                 .make();
