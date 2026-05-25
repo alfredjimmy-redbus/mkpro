@@ -64,11 +64,25 @@ public class MkProContext {
             System.out.println("\n\u001b[33mRebuilding active runner for mode: " + rType + "...\u001b[0m");
 
             // 1. Close active closeable services to prevent resource locks (MapDB lock files, etc.)
-            if (this.sessionService instanceof AutoCloseable) {
-                try { ((AutoCloseable) this.sessionService).close(); } catch (Exception e) {}
+            if (this.sessionService != null) {
+                try {
+                    java.lang.reflect.Method closeMethod = this.sessionService.getClass().getMethod("close");
+                    closeMethod.invoke(this.sessionService);
+                } catch (Exception e) {
+                    if (this.sessionService instanceof AutoCloseable) {
+                        try { ((AutoCloseable) this.sessionService).close(); } catch (Exception ex) {}
+                    }
+                }
             }
-            if (this.artifactService instanceof AutoCloseable) {
-                try { ((AutoCloseable) this.artifactService).close(); } catch (Exception e) {}
+            if (this.artifactService != null) {
+                try {
+                    java.lang.reflect.Method closeMethod = this.artifactService.getClass().getMethod("close");
+                    closeMethod.invoke(this.artifactService);
+                } catch (Exception e) {
+                    if (this.artifactService instanceof AutoCloseable) {
+                        try { ((AutoCloseable) this.artifactService).close(); } catch (Exception ex) {}
+                    }
+                }
             }
             if (this.vectorStore instanceof MapDBVectorStore) {
                 try { ((MapDBVectorStore) this.vectorStore).close(); } catch (Exception e) {}
