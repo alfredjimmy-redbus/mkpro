@@ -218,6 +218,8 @@ public class AgentManager {
             // 1. Build discrete, specialized toolsets from com.mkpro.tools.*
             List<BaseTool> fileSystemTools = new ArrayList<>();
             fileSystemTools.add(FileSystemTools.create());
+            fileSystemTools.add(MkProTools.createWriteFileTool());
+            fileSystemTools.add(MkProTools.createSafeWriteFileTool());
 
             List<BaseTool> clipboardTools = new ArrayList<>();
             clipboardTools.add(ClipboardTools.create());
