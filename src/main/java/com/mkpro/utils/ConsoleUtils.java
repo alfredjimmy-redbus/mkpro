@@ -6,6 +6,7 @@ import org.jline.reader.LineReader;
 import java.util.List;
 
 import static com.mkpro.MkPro.ANSI_BLUE;
+import static com.mkpro.MkPro.ANSI_GREEN;
 import static com.mkpro.MkPro.ANSI_RESET;
 
 public class ConsoleUtils {
@@ -23,9 +24,9 @@ public class ConsoleUtils {
 
         System.out.println(ANSI_BLUE + prompt + ANSI_RESET);
         for (int i = 0; i < options.size(); i++) {
-            System.out.println(String.format(" %d. %s", i + 1, options.get(i)));
+            System.out.println(ANSI_GREEN + String.format(" %d. %s", i + 1, options.get(i)) + ANSI_RESET);
         }
-        System.out.println(String.format(" %d. Cancel", options.size() + 1));
+        System.out.println(ANSI_GREEN + String.format(" %d. Cancel", options.size() + 1) + ANSI_RESET);
 
         while (true) {
             String input = reader.readLine("Choice: ").trim();
