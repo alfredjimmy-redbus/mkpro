@@ -85,6 +85,25 @@ To ensure project integrity and prevent accidental data loss, `mkpro` includes b
 - **Debug Awareness**: Agents are aware of which provider/model they are running on, helping in performance tuning and debugging.
 - **Customizable Teams**: Define your own team rosters, agent descriptions, and specialized instructions using YAML files in `~/.mkpro/teams/`.
 
+## ⌨️ Command Enhancements
+
+Manage your AI team with precision using enhanced CLI commands:
+
+- **`/config`**: View and modify agent configurations dynamically.
+    - `/config list`: Displays the current model and provider assigned to every agent in the team.
+    - `/config [agent] [model]`: Instantly reassign a specific agent to a different model.
+- **`/team`**: Swap entire team structures on the fly. 
+    - Quickly switch between specialized squads (e.g., from a `General` coding team to a specialized `Security` or `DevOps` team) to suit the current task phase.
+
+## ⚙️ Dynamic Model Registry & Sync
+
+`mkpro` features a sophisticated model management system that ensures your environment is always up-to-date with the latest AI advancements.
+
+- **Dynamic Loading**: Model lists for **Gemini**, **Bedrock**, and **Azure** are dynamically loaded from a `models.yaml` file. The system prioritizes a local version in `Documents/mkpro/models.yaml`, falling back to a bundled resource if the local file is missing.
+- **Weekly Git Syncing**: To keep pace with rapid model releases, `mkpro` automatically synchronizes its model registry once a week. This process runs in the background, pulling the latest definitions from a remote raw Git repository.
+- **Customizable Remote**: The sync source is fully customizable. Users can specify their own manifest URL by setting the `models.remote.url` property in the `config.properties` file (defaulting to the official GitHub Raw URL).
+- **Real-time Ollama Detection**: Unlike cloud providers, **Ollama** models are excluded from the static registry. Instead, they are fetched dynamically from the active local Ollama server, reflecting your current local library in real-time.
+
 To use the new background capabilities, you simply need to tell me what you want to run and specify that it should run in the "background" or "detached."
 
 Here is how you can use it:
@@ -187,6 +206,6 @@ Once inside, you can use the `/config` command to set your default provider and 
 
 We welcome contributions! Please feel free to submit Pull Requests or open issues for feature requests and bug reports.
 
-## 📄 License
+## 📜 License
 
 This project is licensed under the Apache License 2.0.
