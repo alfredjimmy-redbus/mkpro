@@ -29,6 +29,7 @@ import com.mkpro.models.Provider;
 import com.mkpro.models.RunnerType;
 import com.mkpro.SessionHelper;
 import com.mkpro.tools.*;
+import com.mkpro.tools.GraphMemoryTools;
 import com.mkpro.ActionLogger;
 import com.mkpro.CentralMemory;
 import com.google.adk.memory.EmbeddingService;
@@ -253,6 +254,12 @@ public class AgentManager {
             mcpScanTools.add(McpServerConnectTools.createScanProjectTool());
             mcpScanTools.add(McpServerConnectTools.createSaveComponentTool());
 
+            // Graphify memory tools
+            List<BaseTool> graphMemoryTools = new ArrayList<>();
+            graphMemoryTools.add(GraphMemoryTools.memorizeFact());
+            graphMemoryTools.add(GraphMemoryTools.recallMemory());
+            graphMemoryTools.add(GraphMemoryTools.visualizeGraph());
+
             // 2. Aggregate specialized arrays tailored to agent roles
             List<BaseTool> coderTools = new ArrayList<>();
             coderTools.addAll(fileSystemTools);
@@ -260,6 +267,7 @@ public class AgentManager {
             coderTools.addAll(codebaseSearchTools);
             coderTools.addAll(mcpScanTools);
             coderTools.addAll(seleniumTools);
+            coderTools.addAll(graphMemoryTools);
 
             List<BaseTool> sysAdminTools = new ArrayList<>();
             sysAdminTools.addAll(shellTools);
@@ -277,6 +285,7 @@ public class AgentManager {
             architectTools.addAll(imageTools);
             architectTools.addAll(multiProjectSearchTools);
             architectTools.addAll(clipboardTools);
+            architectTools.addAll(graphMemoryTools);
 
             List<BaseTool> docWriterTools = new ArrayList<>();
             docWriterTools.addAll(fileSystemTools);
