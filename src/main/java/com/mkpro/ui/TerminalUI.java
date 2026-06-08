@@ -147,7 +147,7 @@ public class TerminalUI {
                                 }, () -> {
                                     // ON COMPLETE - Calculate stats
                                     long duration = System.currentTimeMillis() - startTime;
-                                    String sessId = context.getCurrentSession() != null ? context.getCurrentSession().sessionKey().getSessionId() : "default-session";
+                                    String sessId = context.getCurrentSession() != null ? context.getCurrentSession().id() : "default-session";
                                     
                                     com.mkpro.models.AgentConfig coordConfig = context.getAgentConfigs().get("Coordinator");
                                     String providerStr = coordConfig != null ? coordConfig.getProvider().name() : "OLLAMA";
