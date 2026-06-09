@@ -1,6 +1,6 @@
 # mkpro - The AI Software Engineering Team
 
-`mkpro` is an advanced, modular CLI assistant built on the Google Agent Development Kit (ADK). It orchestrates a team of **12 specialized AI agents** to autonomously handle complex software engineering tasks, from coding and testing to security audits and cloud deployment. It supports a multi-provider backend, allowing you to mix and match local models (Ollama) with powerful cloud models (Gemini, Bedrock).
+`mkpro` is an advanced, modular CLI assistant built on the Google Agent Development Kit (ADK). It orchestrates a team of **13 specialized AI agents** to autonomously handle complex software engineering tasks, from coding and testing to security audits and cloud deployment. It supports a multi-provider backend, allowing you to mix and match local models (Ollama) with powerful cloud models (Gemini, Bedrock).
 
 ## 🤖 Meet the Team
 
@@ -10,16 +10,17 @@ Your `mkpro` instance is not just a chatbot; it's a team of experts led by a Coo
 | :--- | :--- |
 | **Coordinator** | **Team Lead**. Orchestrates the workflow, manages long-term memory, and delegates tasks to the right specialist. It is your primary interface. |
 | **GoalTracker** | **Project Manager**. Keeps track of ongoing session goals, creates TODO lists for complex tasks, and maintains progress in a local MapDB store. |
-| **Coder** | **Software Engineer**. Reads, writes, and refactors code. Analyzes project structure and implements features. |
-| **SysAdmin** | **System Operator**. Executes shell commands, manages files, and runs build tools (Maven, Gradle, npm). *Note: Restricted from modifying code directly; must delegate code changes to the CodeEditor.* |
+| **Coder** | **Software Engineer**. Reads, writes, and refactors code. Analyzes project structure, implements features, and leverages **Graph Memory** to recall architectural patterns and context. |
+| **SysAdmin** | **System Operator**. Executes shell commands, manages infrastructure, and runs build tools (Maven, Gradle, npm). *Note: Focuses strictly on infrastructure and shell commands. Restricted from modifying code directly or managing git.* |
 | **Tester** | **QA Engineer**. Writes unit and integration tests, runs test suites, and analyzes failure reports to suggest fixes. |
 | **DocWriter** | **Technical Writer**. Maintains `README.md`, generates Javadocs/Docstrings, and ensures documentation stays in sync with code. |
 | **SecurityAuditor** | **Security Analyst**. Scans code for vulnerabilities (SQLi, XSS, secrets), runs audit tools (`npm audit`), and recommends hardening steps. |
-| **Architect** | **Principal Engineer**. Reviews high-level design, analyzes cohesion/coupling, enforces design patterns, and plans refactoring. |
+| **Architect** | **Principal Engineer**. Reviews high-level design, analyzes cohesion/coupling, enforces design patterns, plans refactoring, and uses **Graph Memory** to store and retrieve system designs. |
 | **DatabaseAdmin** | **DBA**. Writes complex SQL queries, creates schema migration scripts, and analyzes database structures. |
 | **DevOps** | **SRE / Cloud Engineer**. Writes Dockerfiles, Kubernetes manifests, CI/CD configs, and interacts with cloud CLIs (AWS, GCP). |
 | **DataAnalyst** | **Data Scientist**. Analyzes data sets (CSV, JSON), writes Python scripts (pandas, numpy) for statistical analysis, and generates insights. |
 | **CodeEditor** | **Code Manipulator**. Safely applies code changes to files with a built-in diff preview and user confirmation step. Automatically creates backups using `Maker.backItUp`. |
+| **GitAgent** | **Version Control Specialist**. Dedicated version control specialist responsible for staging, committing, and pushing code. It automatically enforces semantic commit messages and appends the AI session's token consumption statistics to the commit history. |
 
 ### Agent Interaction Flow
 
@@ -73,6 +74,9 @@ To ensure project integrity and prevent accidental data loss, `mkpro` includes b
 
 ## 🚀 Key Features
 
+- **Graph Memory & Visualization**: Agents can now store structured associative memories in a MapDB-backed graph, viewable via the `/visualize` command.
+- **Mesh Networking**: Multiple instances of mkpro can discover each other via mDNS and synchronize their memory and graph states in real-time.
+- **Token Tracking & Analytics**: Comprehensive token tracking per session, agent, and model, viewable via the `/stats` command.
 - **Goal Tracking**: Never lose track of original user requests during complex, multi-step sessions.
 - **Granular Configuration**: Assign different models to different agents. Use a cheap, fast model (e.g., `gemini-1.5-flash`) for the *Coder* and a reasoning-heavy model (e.g., `claude-3-5-sonnet`) for the *Architect*.
 - **Per-Team Configurations**: Save different model setups for different teams (e.g., a "Security" team using specialized models vs. a "Dev" team using fast models).
