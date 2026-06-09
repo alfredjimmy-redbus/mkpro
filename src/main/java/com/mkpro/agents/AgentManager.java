@@ -30,6 +30,7 @@ import com.mkpro.models.Provider;
 import com.mkpro.models.RunnerType;
 import com.mkpro.SessionHelper;
 import com.mkpro.tools.*;
+import com.mkpro.tools.StatsTools;
 import com.mkpro.tools.GraphMemoryTools;
 import com.mkpro.ActionLogger;
 import com.mkpro.CentralMemory;
@@ -274,6 +275,7 @@ public class AgentManager {
             sysAdminTools.addAll(shellTools);
             sysAdminTools.addAll(fileSystemTools);
             sysAdminTools.addAll(clipboardTools);
+            sysAdminTools.add(StatsTools.createGetSessionStatsTool());
 
             List<BaseTool> testerTools = new ArrayList<>();
             testerTools.addAll(fileSystemTools);
