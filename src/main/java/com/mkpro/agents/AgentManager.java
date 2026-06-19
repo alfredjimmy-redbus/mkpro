@@ -334,7 +334,7 @@ public class AgentManager {
             }
 
             List<BaseTool> coordinatorTools = new ArrayList<>();
-            coordinatorTools.add(McpServerConnectTools.createListMcpServersTool(centralMemory));
+            //coordinatorTools.add(McpServerConnectTools.createListMcpServersTool(centralMemory));
 
             // Generate delegation tools for all sub-agents and add them to coordinatorTools
             for (Map.Entry<String, List<BaseTool>> entry : toolMap.entrySet()) {
