@@ -59,6 +59,7 @@ public class MkPro {
         registry.register(new ModelCommand());
         registry.register(new RememberCommand());
         registry.register(new ExportRunnerCommand());
+        registry.register(new ExportTrainingDataCommand());
         registry.register(new VisualizeCommand());
         registry.register(new NetworkCommand());
         registry.register(new HelpCommand(registry));

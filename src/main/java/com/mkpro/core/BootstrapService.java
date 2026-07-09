@@ -186,6 +186,9 @@ public class BootstrapService {
 
             context.setCentralMemory(new CentralMemory());
             
+            // Seed default public MCP servers on first run (safe, no data leakage)
+            seedDefaultMcpServers(context.getCentralMemory());
+
             // Networking Initialization
             int p2pPort = PathUtils.findAvailablePort(9000);
             P2PMessageBus p2pBus = new P2PMessageBus(p2pPort);
@@ -316,5 +319,28 @@ public class BootstrapService {
         System.out.println(ANSI_CYAN + "========================================" + ANSI_RESET);
         System.out.println(ANSI_YELLOW + " Multi-Agent Development Framework " + ANSI_RESET);
         System.out.println(ANSI_CYAN + "========================================" + ANSI_RESET);
+    }
+
+    /**
+     * Seeds default public MCP servers on first run.
+     * These are read-only services that provide documentation and web search — 
+     * they do NOT receive your source code or project data.
+     * All default servers start DISABLED; user must explicitly enable them via /mcp.
+     */
+    private void seedDefaultMcpServers(CentralMemory centralMemory) {
+        if (!centralMemory.getMcpServers().isEmpty()) {
+            return; // Already configured, don't overwrite
+        }
+
+        com.mkpro.models.McpServer context7 = new com.mkpro.models.McpServer(
+            "Context7", "https://mcp.context7.com/mcp", com.mkpro.models.McpServer.McpType.API);
+        context7.setEnabled(false); // Disabled by default — user opts in
+
+        com.mkpro.models.McpServer sequentialThinking = new com.mkpro.models.McpServer(
+            "SequentialThinking", "https://mcp-sequential-thinking.onrender.com/mcp", com.mkpro.models.McpServer.McpType.API);
+        sequentialThinking.setEnabled(false);
+
+        centralMemory.addMcpServer(context7);
+        centralMemory.addMcpServer(sequentialThinking);
     }
 }

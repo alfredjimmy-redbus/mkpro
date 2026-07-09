@@ -51,6 +51,9 @@ public class TerminalUI {
                 } else {
                     // Fallback to Runner
                     if (context.getRunner() != null && context.getCurrentSession() != null) {
+                        // Log user input for training data export
+                        context.getActionLogger().log("USER", line);
+
                         com.google.genai.types.Content message = com.google.genai.types.Content.fromParts(
                             new com.google.genai.types.Part[]{com.google.genai.types.Part.fromText(line)}
                         );
@@ -159,6 +162,11 @@ public class TerminalUI {
                                         tokens[0], tokens[1], tokens[2], sessId
                                     );
                                     context.getCentralMemory().saveAgentStat(stat);
+
+                                    // Log Coordinator response for training data export
+                                    if (responseBuilder.length() > 0) {
+                                        context.getActionLogger().log("Coordinator", responseBuilder.toString());
+                                    }
                                 });
                         } finally {
                             isThinking.set(false);

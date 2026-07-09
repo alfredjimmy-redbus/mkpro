@@ -46,6 +46,9 @@ public class ToolRegistry {
         // Codebase search (vector embeddings)
         toolCache.put("codebase_search", List.of(CodebaseSearchTools.create(vectorStore, embeddingService)));
 
+        // Codebase indexing (populate vector store)
+        toolCache.put("index_codebase", List.of(IndexCodebaseTool.create(vectorStore, embeddingService)));
+
         // Multi-project search
         toolCache.put("multi_project_search", List.of(MultiProjectSearchTools.create(embeddingService, vectorStore)));
 
@@ -67,6 +70,12 @@ public class ToolRegistry {
 
         // Session stats
         toolCache.put("stats", List.of(StatsTools.createGetSessionStatsTool()));
+
+        // Central memory (commit/recall project-scoped memory)
+        toolCache.put("central_memory", List.of(
+            CentralMemoryTools.commitToMemory(),
+            CentralMemoryTools.recallProjectMemory()
+        ));
 
         // Selenium browser tools
         try {
