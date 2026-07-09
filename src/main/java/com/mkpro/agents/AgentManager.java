@@ -97,6 +97,7 @@ public class AgentManager {
     private final Properties configProperties;
     private final ToolRegistry toolRegistry;
     private final AgentFactory agentFactory;
+    private volatile Map<String, AgentConfig> activeAgentConfigs; // Set on each createRunner call
 
     public AgentManager(BaseSessionService sessionService, 
                         BaseArtifactService artifactService, 
@@ -227,6 +228,7 @@ public class AgentManager {
     }
 
     public Runner createRunner(Map<String, AgentConfig> agentConfigs, String augmentedContext) {
+        this.activeAgentConfigs = agentConfigs;
         try {
             // Automatically detect project context if not already provided or if augmentedContext is empty
             String fullContext = augmentedContext != null ? augmentedContext : "";
@@ -633,63 +635,113 @@ public class AgentManager {
         
         long[] tokens = {0, 0, 0}; // [prompt, candidates, total]
         String sessId = "default-session";
+        String usedModel = request.getModelName();
+        String usedProvider = request.getProvider().name();
         
         logger.log("SYSTEM", String.format("Delegating task to %s (%s/%s)...", 
             request.getAgentName(), request.getProvider(), request.getModelName()));
 
         try {
-            AgentConfig config = new AgentConfig(request.getProvider(), request.getModelName(), request.getServerUrl());
-            BaseLlm model = createLlm(config);
-            if (model == null) {
-                throw new IllegalStateException("Could not create LLM for " + request.getAgentName());
+            String result = attemptExecution(request, APP_NAME, output, tokens);
+            if (result != null) {
+                sessId = result;
             }
-            
-            String augmentedInstruction = request.getInstruction() + 
-                "\n\n[System State: Running on Provider: " + request.getProvider() + 
-                ", Model: " + request.getModelName() + "]";
-
-            LlmAgent subAgent = LlmAgent.builder()
-                .name(request.getAgentName())
-                .instruction(augmentedInstruction)
-                .model(model)
-                .tools(request.getTools())
-                .planning(true) // ENABLE PLANNING LOOP
-                .build();
-
-            Runner subRunner = Runner.builder()
-                    .agent(subAgent)
-                    .appName(APP_NAME)
-                    .sessionService(sessionService)
-                    .artifactService(artifactService)
-                    .memoryService(memoryService)
-                    .build();
-
-            Session subSession = SessionHelper.createSession(subRunner.sessionService(), request.getAgentName()).blockingGet();
-            if (subSession != null && subSession.id() != null) {
-                sessId = subSession.id();
-            }
-
-            Content content = Content.builder().role("user").parts(List.of(Part.fromText(request.getUserPrompt()))).build();
-            
-            subRunner.runAsync(request.getAgentName(), subSession.id(), content)
-                .blockingForEach(event -> {
-                    // Capture Text
-                    event.content().ifPresent(c -> {
-                        c.parts().orElse(java.util.Collections.emptyList())
-                         .forEach(p -> p.text().ifPresent(output::append));
-                    });
-                    // Capture Tokens
-                    event.usageMetadata().ifPresent(u -> {
-                        tokens[0] = u.promptTokenCount().orElse(0);
-                        tokens[1] = u.candidatesTokenCount().orElse(0);
-                        tokens[2] = u.totalTokenCount().orElse(0);
-                    });
-                });
             
             String resultStr = output.toString();
             logger.log(request.getAgentName(), resultStr);
             return resultStr;
         } catch (Exception e) {
+            // Determine if this is a connection/health issue or a model failure
+            boolean isConnectionError = isConnectionFailure(e);
+            
+            AgentDefinition def = agentDefinitions.get(request.getAgentName());
+            int maxRetries = (def != null) ? def.getMaxRetries() : 1;
+            
+            // Option C: Health-based routing — try next available Ollama endpoint
+            if (isConnectionError && request.getProvider() == Provider.OLLAMA) {
+                String alternateUrl = findAlternateOllamaEndpoint(request.getServerUrl());
+                if (alternateUrl != null && maxRetries > 0) {
+                    logger.log("SYSTEM", String.format("[RETRY] %s: Connection failed to %s, trying alternate endpoint %s...",
+                        request.getAgentName(), request.getServerUrl(), alternateUrl));
+                    System.out.println("\u001b[33m[Retry] " + request.getAgentName() + ": routing to alternate endpoint...\u001b[0m");
+                    
+                    try {
+                        AgentRequest retryRequest = new AgentRequest(
+                            request.getAgentName(), request.getInstruction(),
+                            request.getModelName(), request.getProvider(),
+                            request.getUserPrompt(), request.getTools(), alternateUrl);
+                        
+                        output.setLength(0);
+                        String retrySess = attemptExecution(retryRequest, APP_NAME, output, tokens);
+                        if (retrySess != null) sessId = retrySess;
+                        usedModel = request.getModelName() + " (rerouted)";
+                        
+                        String resultStr = output.toString();
+                        logger.log(request.getAgentName(), resultStr);
+                        return resultStr;
+                    } catch (Exception retryEx) {
+                        // Retry also failed — fall through to fallback model
+                    }
+                }
+            }
+            
+            // Option B: YAML-defined fallback model
+            if (def != null && def.getFallbackModel() != null && !def.getFallbackModel().isEmpty() && maxRetries > 0) {
+                String fallback = def.getFallbackModel();
+                logger.log("SYSTEM", String.format("[FALLBACK] %s: Primary model failed, trying fallback: %s",
+                    request.getAgentName(), fallback));
+                System.out.println("\u001b[33m[Fallback] " + request.getAgentName() + ": switching to " + fallback + "\u001b[0m");
+                
+                try {
+                    // Parse fallback — may be "model@server"
+                    String fallbackModel = fallback;
+                    String fallbackServerUrl = null;
+                    Provider fallbackProvider = request.getProvider();
+                    
+                    if (fallback.contains("@")) {
+                        int atIdx = fallback.indexOf('@');
+                        fallbackModel = fallback.substring(0, atIdx);
+                        String serverName = fallback.substring(atIdx + 1);
+                        fallbackServerUrl = com.mkpro.commands.impl.OllamaCommand.resolveServerUrl(serverName, centralMemory);
+                    }
+                    
+                    // Check if fallback specifies a different provider (e.g., "gemini-2.0-flash" implies GEMINI)
+                    if (fallbackModel.startsWith("gemini")) {
+                        fallbackProvider = Provider.GEMINI;
+                        fallbackServerUrl = null;
+                    }
+                    
+                    AgentRequest fallbackRequest = new AgentRequest(
+                        request.getAgentName(), request.getInstruction(),
+                        fallbackModel, fallbackProvider,
+                        request.getUserPrompt(), request.getTools(), fallbackServerUrl);
+                    
+                    output.setLength(0);
+                    String fallbackSess = attemptExecution(fallbackRequest, APP_NAME, output, tokens);
+                    if (fallbackSess != null) sessId = fallbackSess;
+                    usedModel = fallbackModel + " (fallback)";
+                    usedProvider = fallbackProvider.name();
+                    
+                    String resultStr = output.toString();
+                    logger.log(request.getAgentName(), resultStr);
+                    
+                    // Recommend upgrading the primary model since fallback succeeded
+                    ConfigRecommender.recommendAfterFallback(
+                        request.getAgentName(),
+                        request.getModelName(),
+                        def.getFallbackModel(),
+                        activeAgentConfigs,
+                        centralMemory
+                    );
+                    
+                    return resultStr;
+                } catch (Exception fallbackEx) {
+                    success = false;
+                    return "Error executing sub-agent " + request.getAgentName() + 
+                        ": Primary failed (" + e.getMessage() + "), Fallback also failed (" + fallbackEx.getMessage() + ")";
+                }
+            }
+            
             success = false;
             return "Error executing sub-agent " + request.getAgentName() + ": " + e.getMessage();
         } finally {
@@ -697,8 +749,8 @@ public class AgentManager {
             try {
                 AgentStat stat = new AgentStat(
                     request.getAgentName(), 
-                    request.getProvider().name(), 
-                    request.getModelName(), 
+                    usedProvider, 
+                    usedModel, 
                     duration, 
                     success, 
                     request.getUserPrompt().length(), 
@@ -713,5 +765,91 @@ public class AgentManager {
                 System.err.println("Failed to save agent stats: " + e.getMessage());
             }
         }
+    }
+
+    /**
+     * Executes a single agent attempt. Returns session ID on success, throws on failure.
+     */
+    private String attemptExecution(AgentRequest request, String appName, StringBuilder output, long[] tokens) throws Exception {
+        AgentConfig config = new AgentConfig(request.getProvider(), request.getModelName(), request.getServerUrl());
+        BaseLlm model = createLlm(config);
+        if (model == null) {
+            throw new IllegalStateException("Could not create LLM for " + request.getAgentName());
+        }
+
+        String augmentedInstruction = request.getInstruction() +
+            "\n\n[System State: Running on Provider: " + request.getProvider() +
+            ", Model: " + request.getModelName() + "]";
+
+        LlmAgent subAgent = LlmAgent.builder()
+            .name(request.getAgentName())
+            .instruction(augmentedInstruction)
+            .model(model)
+            .tools(request.getTools())
+            .planning(true)
+            .build();
+
+        Runner subRunner = Runner.builder()
+            .agent(subAgent)
+            .appName(appName)
+            .sessionService(sessionService)
+            .artifactService(artifactService)
+            .memoryService(memoryService)
+            .build();
+
+        Session subSession = SessionHelper.createSession(subRunner.sessionService(), request.getAgentName()).blockingGet();
+        String sessId = (subSession != null && subSession.id() != null) ? subSession.id() : "default-session";
+
+        Content content = Content.builder().role("user").parts(List.of(Part.fromText(request.getUserPrompt()))).build();
+
+        subRunner.runAsync(request.getAgentName(), subSession.id(), content)
+            .blockingForEach(event -> {
+                event.content().ifPresent(c -> {
+                    c.parts().orElse(java.util.Collections.emptyList())
+                     .forEach(p -> p.text().ifPresent(output::append));
+                });
+                event.usageMetadata().ifPresent(u -> {
+                    tokens[0] = u.promptTokenCount().orElse(0);
+                    tokens[1] = u.candidatesTokenCount().orElse(0);
+                    tokens[2] = u.totalTokenCount().orElse(0);
+                });
+            });
+
+        return sessId;
+    }
+
+    /**
+     * Determines if an exception is a connection/infrastructure failure (vs a model/logic error).
+     */
+    private boolean isConnectionFailure(Exception e) {
+        String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+        if (e.getCause() != null) {
+            msg += " " + (e.getCause().getMessage() != null ? e.getCause().getMessage().toLowerCase() : "");
+        }
+        return msg.contains("connection refused") || msg.contains("connect timed out") ||
+               msg.contains("unreachable") || msg.contains("no route to host") ||
+               msg.contains("connection reset") || msg.contains("econnrefused") ||
+               msg.contains("socket") || msg.contains("timeout");
+    }
+
+    /**
+     * Finds an alternate Ollama endpoint that is different from the failed one.
+     */
+    private String findAlternateOllamaEndpoint(String failedUrl) {
+        List<String> servers = centralMemory.getOllamaServers();
+        for (String entry : servers) {
+            int sep = entry.indexOf('|');
+            if (sep >= 0) {
+                String url = entry.substring(sep + 1);
+                if (!url.equals(failedUrl)) {
+                    return url; // Return first endpoint that isn't the one that failed
+                }
+            }
+        }
+        // Also try the default as last resort
+        if (!ollamaServerUrl.equals(failedUrl)) {
+            return ollamaServerUrl;
+        }
+        return null;
     }
 }

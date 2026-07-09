@@ -14,6 +14,8 @@ public class AgentDefinition implements Serializable {
     private String provider;
     private String model;
     private java.util.List<String> tools;
+    private String fallbackModel;  // e.g., "codestral@gpu4090" — tried if primary fails
+    private int maxRetries = 1;    // How many times to retry with fallback (default: 1)
 
     public AgentDefinition() {}
 
@@ -40,4 +42,12 @@ public class AgentDefinition implements Serializable {
 
     public java.util.List<String> getTools() { return tools; }
     public void setTools(java.util.List<String> tools) { this.tools = tools; }
+
+    @com.fasterxml.jackson.annotation.JsonProperty("fallback_model")
+    public String getFallbackModel() { return fallbackModel; }
+    public void setFallbackModel(String fallbackModel) { this.fallbackModel = fallbackModel; }
+
+    @com.fasterxml.jackson.annotation.JsonProperty("max_retries")
+    public int getMaxRetries() { return maxRetries; }
+    public void setMaxRetries(int maxRetries) { this.maxRetries = maxRetries; }
 }

@@ -78,8 +78,19 @@ public class ConfigCommand implements Command {
             } else {
                 startInteractiveFlow(context);
             }
+        } else if (subCommand.equalsIgnoreCase("fallback")) {
+            if (args.length < 3) {
+                System.out.println("Usage: /config fallback <agent> <model[@server]>");
+                System.out.println("  Example: /config fallback Coder gemini-2.0-flash");
+                System.out.println("  Example: /config fallback Tester codestral@gpu4090");
+                System.out.println("  Use '/config fallback <agent> none' to remove fallback.");
+                return;
+            }
+            String agent = args[1];
+            String fallbackModel = args[2];
+            setFallbackModel(agent, fallbackModel, context);
         } else {
-            System.out.println("Usage: config [list | set <agent> <provider> <model> | reset <agent>]");
+            System.out.println("Usage: config [list | set <agent> <provider> <model> | fallback <agent> <model> | reset <agent>]");
         }
     }
 
@@ -233,6 +244,47 @@ public class ConfigCommand implements Command {
             case "AZURE": return ModelRegistry.AZURE_MODELS;
             case "OLLAMA": return ModelRegistry.OLLAMA_MODELS;
             default: return Arrays.asList();
+        }
+    }
+
+    private void setFallbackModel(String agentName, String fallbackModel, MkProContext context) {
+        if (context.getAgentManager() == null || context.getAgentManager().getAgentDefinitions() == null) {
+            System.out.println("Agent manager not initialized.");
+            return;
+        }
+
+        var def = context.getAgentManager().getAgentDefinitions().get(agentName);
+        if (def == null) {
+            // Try case-insensitive match
+            for (var entry : context.getAgentManager().getAgentDefinitions().entrySet()) {
+                if (entry.getKey().equalsIgnoreCase(agentName)) {
+                    def = entry.getValue();
+                    agentName = entry.getKey();
+                    break;
+                }
+            }
+        }
+
+        if (def == null) {
+            System.out.println("Agent '" + agentName + "' not found. Use '/config list' to see available agents.");
+            return;
+        }
+
+        if ("none".equalsIgnoreCase(fallbackModel) || "clear".equalsIgnoreCase(fallbackModel)) {
+            def.setFallbackModel(null);
+            System.out.println("Removed fallback model for " + agentName + ".");
+        } else {
+            // Validate server name if model@server syntax
+            if (fallbackModel.contains("@")) {
+                String serverName = fallbackModel.substring(fallbackModel.indexOf('@') + 1);
+                String url = OllamaCommand.resolveServerUrl(serverName, context.getCentralMemory());
+                if (url == null && !fallbackModel.startsWith("gemini")) {
+                    System.out.println("Warning: Server '" + serverName + "' not found in registered endpoints.");
+                }
+            }
+            def.setFallbackModel(fallbackModel);
+            System.out.println("Set fallback for " + agentName + " → " + fallbackModel);
+            System.out.println("  If primary model fails, " + agentName + " will retry with: " + fallbackModel);
         }
     }
 
