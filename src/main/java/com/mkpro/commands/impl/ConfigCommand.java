@@ -107,11 +107,52 @@ public class ConfigCommand implements Command {
         String agent = ConsoleUtils.selectOption(context, "Select agent to configure:", agents);
         if (agent == null) return;
 
-        List<String> providers = Arrays.stream(Provider.values()).map(Enum::name).collect(Collectors.toList());
-        String providerStr = ConsoleUtils.selectOption(context, "Select a provider:", providers);
+        // Build provider list with individual Ollama endpoints
+        List<String> providers = new ArrayList<>();
+        List<String> ollamaServers = context.getCentralMemory().getOllamaServers();
+        if (!ollamaServers.isEmpty()) {
+            for (String entry : ollamaServers) {
+                int sep = entry.indexOf('|');
+                if (sep >= 0) {
+                    String name = entry.substring(0, sep);
+                    providers.add("OLLAMA [" + name + "]");
+                }
+            }
+        } else {
+            providers.add("OLLAMA");
+        }
+        providers.add("GEMINI");
+        providers.add("BEDROCK");
+        providers.add("SARVAM");
+        providers.add("AZURE");
+        
+        String providerChoice = ConsoleUtils.selectOption(context, "Select a provider:", providers);
+        if (providerChoice == null) return;
+
+        // Parse the provider choice — extract server name if OLLAMA [xxx]
+        String providerStr;
+        String serverName = null;
+        if (providerChoice.startsWith("OLLAMA")) {
+            providerStr = "OLLAMA";
+            if (providerChoice.contains("[")) {
+                serverName = providerChoice.substring(providerChoice.indexOf('[') + 1, providerChoice.indexOf(']'));
+            }
+        } else {
+            providerStr = providerChoice;
+        }
         if (providerStr == null) return;
 
         List<String> models = getModelsForProvider(providerStr);
+        // If a specific Ollama server was chosen, fetch models from that server
+        if (serverName != null && providerStr.equals("OLLAMA")) {
+            String serverUrl = OllamaCommand.resolveServerUrl(serverName, context.getCentralMemory());
+            if (serverUrl != null) {
+                List<String> serverModels = com.mkpro.config.ModelRegistry.fetchModelsFromServer(serverUrl);
+                if (!serverModels.isEmpty()) {
+                    models = serverModels;
+                }
+            }
+        }
         String model;
         if (models.isEmpty()) {
             model = context.getLineReader().readLine("Enter model name: ").trim();
@@ -120,13 +161,34 @@ public class ConfigCommand implements Command {
         }
         if (model == null || model.isEmpty()) return;
 
+        // Append server name for Ollama per-endpoint routing
+        if (serverName != null && !model.contains("@")) {
+            model = model + "@" + serverName;
+        }
+
         applyConfig(agent, providerStr, model, context);
     }
 
     private void applyConfig(String agent, String providerStr, String model, MkProContext context) {
         try {
             Provider provider = Provider.valueOf(providerStr.toUpperCase());
-            AgentConfig config = new AgentConfig(provider, model);
+            
+            // Parse model@server syntax for Ollama per-agent routing
+            String serverUrl = null;
+            if (provider == Provider.OLLAMA && model.contains("@")) {
+                int atIdx = model.indexOf('@');
+                String serverName = model.substring(atIdx + 1);
+                model = model.substring(0, atIdx);
+                
+                // Resolve server name to URL
+                serverUrl = OllamaCommand.resolveServerUrl(serverName, context.getCentralMemory());
+                if (serverUrl == null) {
+                    System.out.println("Unknown Ollama server: '" + serverName + "'. Use '/ollama list' to see available servers.");
+                    return;
+                }
+            }
+            
+            AgentConfig config = new AgentConfig(provider, model, serverUrl);
             
             if ("All Agents".equalsIgnoreCase(agent)) {
                 // Save for default

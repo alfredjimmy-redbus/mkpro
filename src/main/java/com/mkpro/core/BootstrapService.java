@@ -342,5 +342,13 @@ public class BootstrapService {
 
         centralMemory.addMcpServer(context7);
         centralMemory.addMcpServer(sequentialThinking);
+
+        // Ensure default Ollama endpoint (localhost) is always present
+        java.util.List<String> ollamaServers = new java.util.ArrayList<>(centralMemory.getOllamaServers());
+        boolean hasLocal = ollamaServers.stream().anyMatch(e -> e.startsWith("local|"));
+        if (!hasLocal) {
+            ollamaServers.add(0, "local|http://localhost:11434");
+            centralMemory.saveOllamaServers(ollamaServers);
+        }
     }
 }

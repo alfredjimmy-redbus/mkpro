@@ -193,7 +193,8 @@ public class AgentManager {
                         .modelName(config.getModelName())
                         .build();
             case OLLAMA:
-                return new OllamaBaseLM(  config.getModelName(),ollamaServerUrl);
+                String resolvedUrl = resolveOllamaUrl(config);
+                return new OllamaBaseLM(config.getModelName(), resolvedUrl);
             case BEDROCK:
                 return new BedrockBaseLM(config.getModelName());
             case AZURE:
@@ -201,6 +202,28 @@ public class AgentManager {
             default:
                 return null;
         }
+    }
+
+    /**
+     * Resolves the Ollama server URL for a given agent config.
+     * Priority: per-agent serverUrl > first registered endpoint > constructor default.
+     */
+    private String resolveOllamaUrl(AgentConfig config) {
+        // 1. Per-agent override
+        if (config.hasServerUrl()) {
+            return config.getServerUrl();
+        }
+        // 2. First registered endpoint (all are active)
+        List<String> servers = centralMemory.getOllamaServers();
+        if (!servers.isEmpty()) {
+            String first = servers.get(0);
+            int sep = first.indexOf('|');
+            if (sep >= 0) {
+                return first.substring(sep + 1);
+            }
+        }
+        // 3. Default (from config.properties via constructor)
+        return ollamaServerUrl;
     }
 
     public Runner createRunner(Map<String, AgentConfig> agentConfigs, String augmentedContext) {
@@ -399,11 +422,30 @@ public class AgentManager {
             AgentConfig coordConfig = agentConfigs.getOrDefault("Coordinator", new AgentConfig(Provider.OLLAMA, "devstral-small-2"));
             BaseLlm coordLlm = createLlm(coordConfig);
             
-            // Build Coordinator instruction: YAML-defined instruction + project context
+            // Build Coordinator instruction: YAML-defined instruction + project context + state memory
             String coordInstruction = fullContext;
             AgentDefinition coordDef = agentDefinitions.get("Coordinator");
             if (coordDef != null && coordDef.getInstruction() != null) {
                 coordInstruction = coordDef.getInstruction() + "\n\n" + fullContext;
+            }
+
+            // Inject Goal Stimulus (pending/failed goals from previous sessions)
+            String projectPath = System.getProperty("user.dir");
+            String goalStimulus = com.mkpro.Maker.getGoalStimulus(centralMemory, projectPath);
+            if (goalStimulus != null && !goalStimulus.startsWith("No goals") && !goalStimulus.startsWith("Error")) {
+                coordInstruction += "\n\n── SESSION STATE ──\n" + goalStimulus;
+            }
+
+            // Inject Project Memory (insights committed via /remember or commit_to_memory)
+            String projectMemory = centralMemory.getMemory(projectPath);
+            if (projectMemory != null && !projectMemory.isEmpty()) {
+                coordInstruction += "\n\n── PROJECT MEMORY ──\n" + projectMemory;
+            }
+
+            // Inject MCP Context (available MCP servers and workflow instructions)
+            String mcpContext = com.mkpro.tools.McpServerConnectTools.buildMcpContextForAgent(centralMemory);
+            if (mcpContext != null && !mcpContext.isEmpty()) {
+                coordInstruction += mcpContext;
             }
             
             LlmAgent coordinator = LlmAgent.builder()
@@ -573,7 +615,8 @@ public class AgentManager {
                         finalConfig.getModelName(),
                         finalConfig.getProvider(),
                         instruction,
-                        subAgentTools
+                        subAgentTools,
+                        finalConfig.getServerUrl()
                     ));
                     return Collections.singletonMap("result", result);
                 });
@@ -595,7 +638,7 @@ public class AgentManager {
             request.getAgentName(), request.getProvider(), request.getModelName()));
 
         try {
-            AgentConfig config = new AgentConfig(request.getProvider(), request.getModelName());
+            AgentConfig config = new AgentConfig(request.getProvider(), request.getModelName(), request.getServerUrl());
             BaseLlm model = createLlm(config);
             if (model == null) {
                 throw new IllegalStateException("Could not create LLM for " + request.getAgentName());

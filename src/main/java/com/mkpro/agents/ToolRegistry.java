@@ -43,6 +43,12 @@ public class ToolRegistry {
         // Image analysis
         toolCache.put("image", List.of(ImageTools.create()));
 
+        // Vision (multimodal LLM image analysis)
+        toolCache.put("vision", List.of(VisionTool.create()));
+
+        // Audio transcription (multimodal LLM audio understanding)
+        toolCache.put("audio", List.of(AudioTranscriptionTool.create()));
+
         // Codebase search (vector embeddings)
         toolCache.put("codebase_search", List.of(CodebaseSearchTools.create(vectorStore, embeddingService)));
 

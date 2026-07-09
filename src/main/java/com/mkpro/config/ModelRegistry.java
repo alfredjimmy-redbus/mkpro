@@ -115,54 +115,91 @@ public class ModelRegistry {
     private static void fetchOllamaModels() {
         CompletableFuture.runAsync(() -> {
             ConfigService config = new ConfigService();
-            String ollamaUrl = config.getSetting(ConfigService.PROP_OLLAMA_URL, "http://localhost:11434");
+            String defaultUrl = config.getSetting(ConfigService.PROP_OLLAMA_URL, "http://localhost:11434");
             
-            if (ollamaUrl.endsWith("/")) {
-                ollamaUrl = ollamaUrl.substring(0, ollamaUrl.length() - 1);
+            if (defaultUrl.endsWith("/")) {
+                defaultUrl = defaultUrl.substring(0, defaultUrl.length() - 1);
             }
 
+            List<String> allModels = new ArrayList<>();
+
+            // Fetch from default endpoint
+            List<String> defaultModels = fetchModelsFromServer(defaultUrl);
+            allModels.addAll(defaultModels);
+
+            // Fetch from all registered endpoints in CentralMemory
             try {
-                HttpClient client = HttpClient.newBuilder()
-                        .connectTimeout(Duration.ofSeconds(2))
-                        .build();
+                com.mkpro.CentralMemory memory = com.mkpro.CentralMemory.getInstance();
+                List<String> servers = memory.getOllamaServers();
+                for (String entry : servers) {
+                    int sep = entry.indexOf('|');
+                    if (sep >= 0) {
+                        String serverName = entry.substring(0, sep);
+                        String serverUrl = entry.substring(sep + 1);
+                        if (serverUrl.equals(defaultUrl)) continue; // Skip duplicate
 
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(ollamaUrl + "/api/tags"))
-                        .GET()
-                        .timeout(Duration.ofSeconds(5))
-                        .build();
-
-                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-
-                if (response.statusCode() == 200) {
-                    ObjectMapper mapper = new ObjectMapper();
-                    Map<String, Object> data = mapper.readValue(response.body(), Map.class);
-                    List<Map<String, Object>> models = (List<Map<String, Object>>) data.get("models");
-                    
-                    if (models != null && !models.isEmpty()) {
-                        List<String> fetchedModels = new ArrayList<>();
-                        for (Map<String, Object> model : models) {
-                            String name = (String) model.get("name");
-                            if (name != null) {
-                                fetchedModels.add(name);
+                        List<String> serverModels = fetchModelsFromServer(serverUrl);
+                        // Prefix with server name for disambiguation
+                        for (String model : serverModels) {
+                            String prefixed = serverName + "/" + model;
+                            if (!allModels.contains(model)) {
+                                allModels.add(model); // Add unprefixed if unique
                             }
-                        }
-                        if (!fetchedModels.isEmpty()) {
-                            OLLAMA_MODELS = fetchedModels;
-                            logger.info("Successfully fetched {} models from Ollama.", fetchedModels.size());
-                            return;
+                            allModels.add(prefixed); // Always add prefixed version
                         }
                     }
                 }
             } catch (Exception e) {
-                logger.debug("Ollama server not reachable at {}: {}. Using default Ollama models.", ollamaUrl, e.getMessage());
+                logger.debug("Could not fetch models from registered endpoints: {}", e.getMessage());
             }
 
-            // Fallback
-            OLLAMA_MODELS = new ArrayList<>(Arrays.asList(
-                "llama3", "qwen2.5-coder", "mistral", "phi3", "codegemma", "starCoder2"
-            ));
+            if (!allModels.isEmpty()) {
+                OLLAMA_MODELS = allModels;
+                logger.info("Successfully fetched {} Ollama models from all endpoints.", allModels.size());
+            } else {
+                // Fallback
+                OLLAMA_MODELS = new ArrayList<>(Arrays.asList(
+                    "llama3", "qwen2.5-coder", "mistral", "phi3", "codegemma", "starCoder2"
+                ));
+            }
         });
+    }
+
+    @SuppressWarnings("unchecked")
+    public static List<String> fetchModelsFromServer(String serverUrl) {
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(2))
+                    .build();
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(serverUrl + "/api/tags"))
+                    .GET()
+                    .timeout(Duration.ofSeconds(5))
+                    .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() == 200) {
+                ObjectMapper mapper = new ObjectMapper();
+                Map<String, Object> data = mapper.readValue(response.body(), Map.class);
+                List<Map<String, Object>> models = (List<Map<String, Object>>) data.get("models");
+
+                if (models != null && !models.isEmpty()) {
+                    List<String> fetchedModels = new ArrayList<>();
+                    for (Map<String, Object> model : models) {
+                        String name = (String) model.get("name");
+                        if (name != null) {
+                            fetchedModels.add(name);
+                        }
+                    }
+                    return fetchedModels;
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Ollama server not reachable at {}: {}", serverUrl, e.getMessage());
+        }
+        return Collections.emptyList();
     }
 
     @SuppressWarnings("unchecked")

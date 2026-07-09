@@ -62,6 +62,7 @@ public class MkPro {
         registry.register(new ExportTrainingDataCommand());
         registry.register(new VisualizeCommand());
         registry.register(new NetworkCommand());
+        registry.register(new OllamaCommand());
         registry.register(new HelpCommand(registry));
         registry.register(new ExitCommand());
         // /quit is an alias for /exit
