@@ -124,7 +124,9 @@ The `Maker.getGoalStimulus()` method generates a dynamic **Goal Stimulus** repor
 ## 🚀 Key Features
 
 - **Graph Memory & Visualization**: Agents store structured associative memories in a MapDB-backed graph, viewable via `/visualize`.
-- **Mesh Networking**: Multiple mkpro instances discover each other via mDNS and synchronize memory/graph states in real-time.
+- **Mesh Networking**: Multiple mkpro instances discover each other via mDNS and synchronize memory/graph states in real-time. Automatic reconnection with exponential backoff.
+- **Cross-Instance Agent Communication**: Agents can directly ask agents on peer instances for help. Architect on Instance A can query Architect on Instance B about its project. Peer handshake exchanges project info on connection.
+- **Self-Adaptive Model Resilience**: YAML-defined fallback models per agent. Health-based routing on connection failures. User-confirmed recommendations when fallback succeeds.
 - **Token Tracking & Analytics**: Comprehensive token tracking per session, agent, and model, viewable via `/stats`.
 - **Goal Tracking**: Never lose track of original user requests during complex, multi-step sessions.
 - **Granular Configuration**: Assign different models to different agents via `/config`.
@@ -164,6 +166,10 @@ The `Maker.getGoalStimulus()` method generates a dynamic **Goal Stimulus** repor
 | `/model` | Switch models |
 | `/runner` | Switch execution runner type |
 | `/network` | Manage mesh networking peers |
+| `/network connect <ip:port>` | Manually connect to a peer instance |
+| `/network peers` | List discovered peers with project info |
+| `/config fallback <agent> <model@provider>` | Set fallback model for an agent |
+| `/config fallback default <model@provider>` | Set global fallback for all agents |
 | `/remember` | Save a project summary to persistent memory |
 | `/export` | Export chat sessions as JSONL training data |
 | `/status` | Show system status, endpoints, and agent assignments |
@@ -244,7 +250,7 @@ export AWS_REGION=your_region
 
 Launch the CLI:
 ```bash
-java -jar target/mkpro-3.2.0.jar
+java -jar target/mkpro-4.0.0.jar
 ```
 
 Or use the native executable (Windows):
