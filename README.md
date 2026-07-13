@@ -104,6 +104,21 @@ The `Maker.getGoalStimulus()` method generates a dynamic **Goal Stimulus** repor
 - **Effective Leaf Goals**: Only actionable tasks (no sub-goals, or all sub-goals completed) are shown.
 - **Context Optimization**: Pending list capped at 5 items to preserve token space.
 
+### Markov Chain Router
+
+A learned probabilistic model that fast-routes requests to agents **without LLM calls**:
+
+- **IntentClassifier**: Categorizes user input via keyword/regex matching (14 categories)
+- **MarkovRouter**: Transition matrix predicts P(agent | category) with confidence scoring
+- **Zero-latency routing**: When confidence ≥ 65%, bypasses the Coordinator LLM entirely
+- **Self-improving**: Trains from JSONL data on startup, learns from live usage, auto-exports on exit
+- **Transparent**: Always shows routing decision and confidence percentage
+
+Training pipeline:
+```
+Session usage → auto-export JSONL on exit → /train on next startup → better routing
+```
+
 ## 🛡️ Safety & Security
 
 ### Defense-in-Depth
@@ -172,6 +187,9 @@ The `Maker.getGoalStimulus()` method generates a dynamic **Goal Stimulus** repor
 | `/config fallback default <model@provider>` | Set global fallback for all agents |
 | `/remember` | Save a project summary to persistent memory |
 | `/export` | Export chat sessions as JSONL training data |
+| `/train` | Train Markov Router from JSONL data |
+| `/train status` | Show router model stats and category→agent mapping |
+| `/train reset` | Clear model and retrain from scratch |
 | `/status` | Show system status, endpoints, and agent assignments |
 | `/help` | Show available commands |
 | `/exit`, `/quit` | Exit the application |
