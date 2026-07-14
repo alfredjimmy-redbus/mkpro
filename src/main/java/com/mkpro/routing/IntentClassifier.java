@@ -61,7 +61,11 @@ public class IntentClassifier {
         PATTERNS.put(TaskCategory.ARCHITECTURE, compilePatterns(
             "architect", "design", "pattern", "refactor", "coupling", "cohesion",
             "microservice", "scalab", "performance.*review", "structure", "module",
-            "dependency.*analys", "clean.*code", "solid"
+            "dependency.*analys", "clean.*code", "solid",
+            "analyz.*project", "analyz.*code", "analyz.*entire", "deep.*analyz",
+            "review.*project", "review.*code", "review.*entire", "codebase.*review",
+            "scan.*project", "scan.*code", "explore.*code", "understand.*code",
+            "overview", "high.*level", "how.*work", "how.*structure"
         ));
 
         PATTERNS.put(TaskCategory.ANDROID, compilePatterns(
@@ -86,7 +90,10 @@ public class IntentClassifier {
 
         PATTERNS.put(TaskCategory.SYSADMIN, compilePatterns(
             "run ", "execute", "build.*project", "install.*dep", "start.*server",
-            "process", "disk", "memory.*usage", "environment", "command"
+            "process", "disk", "memory.*usage", "environment", "command",
+            "count.*file", "count.*line", "list.*file", "find.*file", "search.*file",
+            "how.*many", "size.*of", "open.*terminal", "shell", "script",
+            "clean", "compile", "package", "maven", "npm.*run", "gradle"
         ));
 
         PATTERNS.put(TaskCategory.GOALS, compilePatterns(
@@ -98,7 +105,9 @@ public class IntentClassifier {
             "implement", "code", "function", "class", "method", "api", "endpoint",
             "feature", "bug", "fix", "add", "create", "write.*code", "logic",
             "algorithm", "interface", "service", "controller", "model",
-            "import", "library", "module"
+            "import", "library", "module",
+            "edit.*file", "change.*file", "modify", "update.*code", "rename",
+            "variable", "error", "exception", "null", "crash", "broken"
         ));
     }
 
