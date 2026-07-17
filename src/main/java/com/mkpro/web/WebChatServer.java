@@ -42,6 +42,8 @@ public class WebChatServer {
     private ChatWebSocketServer wsServer;
     private volatile WebInputHandler inputHandler;
     private volatile com.mkpro.CentralMemory centralMemory;
+    private volatile com.mkpro.knowledge.KnowledgeStore knowledgeStore;
+    private volatile com.mkpro.knowledge.TopicIndex topicIndex;
 
     // All connected WebSocket clients
     private final Set<WebSocket> clients = Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -56,6 +58,14 @@ public class WebChatServer {
      */
     public void setCentralMemory(com.mkpro.CentralMemory memory) {
         this.centralMemory = memory;
+    }
+
+    /**
+     * Set knowledge components for the /knowledge page.
+     */
+    public void setKnowledgeComponents(com.mkpro.knowledge.KnowledgeStore store, com.mkpro.knowledge.TopicIndex index) {
+        this.knowledgeStore = store;
+        this.topicIndex = index;
     }
 
     /**
@@ -77,8 +87,14 @@ public class WebChatServer {
                 serveResource(exchange, "/web/index.html", "text/html");
             } else if ("/db".equals(path)) {
                 serveResource(exchange, "/web/db.html", "text/html");
+            } else if ("/knowledge".equals(path)) {
+                serveResource(exchange, "/web/knowledge.html", "text/html");
             } else if ("/api/db".equals(path)) {
                 serveDbApi(exchange);
+            } else if ("/api/knowledge".equals(path)) {
+                serveKnowledgeApi(exchange);
+            } else if (path.startsWith("/api/knowledge/search")) {
+                serveKnowledgeSearchApi(exchange);
             } else {
                 exchange.sendResponseHeaders(404, -1);
                 exchange.close();
@@ -184,6 +200,80 @@ public class WebChatServer {
             }
         } catch (Exception e) {
             // Ignore malformed messages
+        }
+    }
+
+    private void serveKnowledgeApi(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        if (knowledgeStore == null) {
+            byte[] err = "{\"topics\":{}}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+            exchange.sendResponseHeaders(200, err.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(err); }
+            return;
+        }
+
+        try {
+            java.util.List<com.mkpro.knowledge.TopicReport> reports = knowledgeStore.getAllReports();
+            java.util.Map<String, com.mkpro.knowledge.TopicReport> topicMap = new java.util.LinkedHashMap<>();
+            for (com.mkpro.knowledge.TopicReport r : reports) {
+                topicMap.put(r.getName(), r);
+            }
+            java.util.Map<String, Object> response = java.util.Map.of("topics", topicMap);
+            String json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(response);
+            byte[] content = json.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+            exchange.sendResponseHeaders(200, content.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(content); }
+        } catch (Exception e) {
+            byte[] err = ("{\"error\":\"" + e.getMessage() + "\"}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+            exchange.sendResponseHeaders(500, err.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(err); }
+        }
+    }
+
+    private void serveKnowledgeSearchApi(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        if (topicIndex == null) {
+            byte[] err = "[]".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+            exchange.sendResponseHeaders(200, err.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(err); }
+            return;
+        }
+
+        try {
+            // Parse query from ?q=...
+            String query = "";
+            String rawQuery = exchange.getRequestURI().getQuery();
+            if (rawQuery != null) {
+                for (String param : rawQuery.split("&")) {
+                    if (param.startsWith("q=")) {
+                        query = java.net.URLDecoder.decode(param.substring(2), StandardCharsets.UTF_8);
+                    }
+                }
+            }
+
+            if (query.isBlank()) {
+                byte[] empty = "[]".getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+                exchange.sendResponseHeaders(200, empty.length);
+                try (OutputStream os = exchange.getResponseBody()) { os.write(empty); }
+                return;
+            }
+
+            java.util.List<com.mkpro.knowledge.TopicIndex.SearchResult> results = topicIndex.search(query, 10);
+            String json = mapper.writeValueAsString(results);
+            byte[] content = json.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+            exchange.sendResponseHeaders(200, content.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(content); }
+        } catch (Exception e) {
+            byte[] err = ("{\"error\":\"" + e.getMessage() + "\"}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+            exchange.sendResponseHeaders(500, err.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(err); }
         }
     }
 

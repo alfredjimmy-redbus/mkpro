@@ -64,6 +64,12 @@ public class MkProContext {
     private com.mkpro.web.WebChatServer webChatServer;
     private final java.util.concurrent.LinkedBlockingQueue<String> webInputQueue = new java.util.concurrent.LinkedBlockingQueue<>();
 
+    // Knowledge scheduler components
+    private com.mkpro.knowledge.KnowledgeStore knowledgeStore;
+    private com.mkpro.knowledge.TopicIndex topicIndex;
+    private com.mkpro.knowledge.KnowledgeScheduler knowledgeScheduler;
+    private boolean schedulerEnabled = false;
+
     public MkProContext() {
     }
 
@@ -443,5 +449,39 @@ public class MkProContext {
 
     public void setAgentManager(AgentManager agentManager) {
         this.agentManager = agentManager;
+    }
+
+    // Knowledge scheduler accessors
+
+    public com.mkpro.knowledge.KnowledgeStore getKnowledgeStore() {
+        return knowledgeStore;
+    }
+
+    public void setKnowledgeStore(com.mkpro.knowledge.KnowledgeStore knowledgeStore) {
+        this.knowledgeStore = knowledgeStore;
+    }
+
+    public com.mkpro.knowledge.TopicIndex getTopicIndex() {
+        return topicIndex;
+    }
+
+    public void setTopicIndex(com.mkpro.knowledge.TopicIndex topicIndex) {
+        this.topicIndex = topicIndex;
+    }
+
+    public com.mkpro.knowledge.KnowledgeScheduler getKnowledgeScheduler() {
+        return knowledgeScheduler;
+    }
+
+    public void setKnowledgeScheduler(com.mkpro.knowledge.KnowledgeScheduler knowledgeScheduler) {
+        this.knowledgeScheduler = knowledgeScheduler;
+    }
+
+    public boolean isSchedulerEnabled() {
+        return schedulerEnabled;
+    }
+
+    public void setSchedulerEnabled(boolean schedulerEnabled) {
+        this.schedulerEnabled = schedulerEnabled;
     }
 }

@@ -108,6 +108,13 @@ public class BootstrapService {
             }
             
             ActionLogger.shutdown();
+
+            // Stop knowledge scheduler
+            if (context.getKnowledgeScheduler() != null) {
+                try {
+                    context.getKnowledgeScheduler().stop();
+                } catch (Throwable e) { /* Ignore */ }
+            }
             
             if (context.getSessionService() instanceof AutoCloseable) {
                 try {
@@ -143,6 +150,157 @@ public class BootstrapService {
         }));
     }
 
+    private void initKnowledgeScheduler(MkProContext context) {
+        System.out.println(ANSI_BLUE + "[Knowledge] Initializing scheduler..." + ANSI_RESET);
+
+        var knowledgeStore = new com.mkpro.knowledge.KnowledgeStore(context.getCentralMemory());
+        var topicIndex = new com.mkpro.knowledge.TopicIndex();
+        var fetcher = new com.mkpro.knowledge.SourceFetcher();
+
+        // Load topic configs from schedules.yaml
+        java.util.List<com.mkpro.knowledge.TopicConfig> topics = loadSchedulesConfig();
+
+        if (topics.isEmpty()) {
+            System.out.println(ANSI_YELLOW + "[Knowledge] No topics configured in schedules.yaml. Scheduler idle." + ANSI_RESET);
+        } else {
+            System.out.println(ANSI_GREEN + "[Knowledge] Loaded " + topics.size() + " topic(s) from schedules.yaml" + ANSI_RESET);
+        }
+
+        var scheduler = new com.mkpro.knowledge.KnowledgeScheduler(knowledgeStore, topicIndex, fetcher, topics);
+
+        // The analyze callback uses the ADK runner for real LLM analysis
+        scheduler.setAnalyzeCallback((topicName, prompt) -> {
+            if (context.getRunner() == null || context.getCurrentSession() == null) {
+                System.out.println(ANSI_YELLOW + "[Knowledge] Runner not available for " + topicName + ", storing raw data" + ANSI_RESET);
+                return prompt.length() > 2000 ? prompt.substring(0, 2000) : prompt;
+            }
+
+            try {
+                // Build content message for the agent
+                com.google.genai.types.Content message = com.google.genai.types.Content.fromParts(
+                    new com.google.genai.types.Part[]{com.google.genai.types.Part.fromText(prompt)});
+
+                StringBuilder responseText = new StringBuilder();
+                java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                java.util.concurrent.atomic.AtomicReference<String> errorRef = new java.util.concurrent.atomic.AtomicReference<>();
+
+                context.getRunner().runAsync(context.getCurrentSession().sessionKey(), message)
+                    .blockingSubscribe(
+                        event -> {
+                            event.content().ifPresent(content -> {
+                                content.parts().ifPresent(parts -> {
+                                    for (com.google.genai.types.Part part : parts) {
+                                        part.text().ifPresent(responseText::append);
+                                    }
+                                });
+                            });
+                        },
+                        error -> {
+                            errorRef.set(error.getMessage());
+                            latch.countDown();
+                        },
+                        latch::countDown
+                    );
+
+                latch.await(120, java.util.concurrent.TimeUnit.SECONDS);
+
+                if (errorRef.get() != null) {
+                    System.out.println(ANSI_YELLOW + "[Knowledge] Analysis error for " + topicName + ": " + errorRef.get() + ANSI_RESET);
+                    return null;
+                }
+
+                String result = responseText.toString().trim();
+                if (result.isEmpty()) {
+                    return null;
+                }
+
+                System.out.println(ANSI_GREEN + "[Knowledge] Analysis complete for " + topicName + " (" + result.length() + " chars)" + ANSI_RESET);
+                return result;
+
+            } catch (Exception e) {
+                System.out.println(ANSI_YELLOW + "[Knowledge] Analysis failed for " + topicName + ": " + e.getMessage() + ANSI_RESET);
+                return null;
+            }
+        });
+
+        // Rebuild index from existing reports
+        for (var report : knowledgeStore.getAllReports()) {
+            if (report.getSummary() != null && !report.getSummary().isBlank()) {
+                topicIndex.indexTopic(report.getName(), report.getSummary());
+            }
+        }
+        topicIndex.rebuildIdf();
+
+        context.setKnowledgeStore(knowledgeStore);
+        context.setTopicIndex(topicIndex);
+        context.setKnowledgeScheduler(scheduler);
+
+        if (!topics.isEmpty()) {
+            scheduler.start();
+            System.out.println(ANSI_GREEN + "[Knowledge] Scheduler started." + ANSI_RESET);
+        }
+    }
+
+    private java.util.List<com.mkpro.knowledge.TopicConfig> loadSchedulesConfig() {
+        java.util.List<com.mkpro.knowledge.TopicConfig> topics = new java.util.ArrayList<>();
+
+        // Look for schedules.yaml in multiple locations (priority order):
+        // 1. .mkpro/schedules.yaml (project-local)
+        // 2. ~/Documents/mkpro/schedules.yaml (user-global)
+        Path[] searchPaths = {
+            Paths.get(".mkpro", "schedules.yaml"),
+            Paths.get(System.getProperty("user.home"), "Documents", "mkpro", "schedules.yaml")
+        };
+
+        Path configPath = null;
+        for (Path p : searchPaths) {
+            if (Files.exists(p)) {
+                configPath = p;
+                break;
+            }
+        }
+
+        if (configPath == null) {
+            return topics;
+        }
+
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper yamlMapper = new com.fasterxml.jackson.databind.ObjectMapper(
+                new com.fasterxml.jackson.dataformat.yaml.YAMLFactory());
+
+            com.fasterxml.jackson.databind.JsonNode root = yamlMapper.readTree(configPath.toFile());
+            com.fasterxml.jackson.databind.JsonNode topicsNode = root.get("topics");
+
+            if (topicsNode != null && topicsNode.isArray()) {
+                for (com.fasterxml.jackson.databind.JsonNode node : topicsNode) {
+                    com.mkpro.knowledge.TopicConfig tc = new com.mkpro.knowledge.TopicConfig();
+                    tc.setName(node.has("name") ? node.get("name").asText() : null);
+                    tc.setTitle(node.has("title") ? node.get("title").asText() : tc.getName());
+
+                    if (node.has("sources") && node.get("sources").isArray()) {
+                        java.util.List<String> sources = new java.util.ArrayList<>();
+                        for (com.fasterxml.jackson.databind.JsonNode s : node.get("sources")) {
+                            sources.add(s.asText());
+                        }
+                        tc.setSources(sources);
+                    }
+
+                    if (node.has("instruction")) tc.setInstruction(node.get("instruction").asText());
+                    if (node.has("agent")) tc.setAgent(node.get("agent").asText());
+                    if (node.has("refreshIntervalMinutes")) tc.setRefreshIntervalMinutes(node.get("refreshIntervalMinutes").asInt());
+
+                    if (tc.getName() != null && tc.getSources() != null && !tc.getSources().isEmpty()) {
+                        topics.add(tc);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.out.println(ANSI_YELLOW + "[Knowledge] Error loading schedules.yaml: " + e.getMessage() + ANSI_RESET);
+        }
+
+        return topics;
+    }
+
     private void parseArgs(String[] args, MkProContext context) {
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
@@ -166,6 +324,8 @@ public class BootstrapService {
                 context.setNetworkEnabled(false);
             } else if ("--network".equalsIgnoreCase(arg)) {
                 context.setNetworkEnabled(true);
+            } else if ("--scheduler".equalsIgnoreCase(arg)) {
+                context.setSchedulerEnabled(true);
             }
         }
     }
@@ -227,6 +387,24 @@ public class BootstrapService {
 
             // Initialize Groovy script engine with CentralMemory backing
             com.mkpro.scripting.ScriptTools.init(context.getCentralMemory());
+
+            // Initialize Knowledge Scheduler if --scheduler flag is set
+            if (context.isSchedulerEnabled()) {
+                initKnowledgeScheduler(context);
+            } else {
+                // Still set up store and index for /know command (search existing data)
+                var knowledgeStore = new com.mkpro.knowledge.KnowledgeStore(context.getCentralMemory());
+                var topicIndex = new com.mkpro.knowledge.TopicIndex();
+                context.setKnowledgeStore(knowledgeStore);
+                context.setTopicIndex(topicIndex);
+                // Rebuild index from existing reports
+                for (var report : knowledgeStore.getAllReports()) {
+                    if (report.getSummary() != null && !report.getSummary().isBlank()) {
+                        topicIndex.indexTopic(report.getName(), report.getSummary());
+                    }
+                }
+                topicIndex.rebuildIdf();
+            }
 
             // Networking Initialization
             P2PMessageBus p2pBus = null;

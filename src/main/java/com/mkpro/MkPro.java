@@ -54,6 +54,9 @@ public class MkPro {
             if (webPort > 0) {
                 com.mkpro.web.WebChatServer webServer = new com.mkpro.web.WebChatServer(webPort);
                 webServer.setCentralMemory(context.getCentralMemory());
+                if (context.getKnowledgeStore() != null && context.getTopicIndex() != null) {
+                    webServer.setKnowledgeComponents(context.getKnowledgeStore(), context.getTopicIndex());
+                }
                 webServer.start();
                 context.setWebChatServer(webServer);
             }
@@ -104,6 +107,7 @@ public class MkPro {
         registry.register(new NetworkCommand());
         registry.register(new OllamaCommand());
         registry.register(new HistoryCommand());
+        registry.register(new KnowledgeCommand());
         registry.register(new HelpCommand(registry));
         registry.register(new ExitCommand());
         // /quit is an alias for /exit

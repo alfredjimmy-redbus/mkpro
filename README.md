@@ -167,6 +167,7 @@ Turn complete → predict completion → if P≥75%: COMPLETE
 - **Stall Prediction & Redirect**: Maker detects stall patterns from history. On stall, routes to alternative agent (load balancer with memory) rather than giving up. Max 2 redirects before wrap-up.
 - **Heuristic Completion Detection**: Maker reads response text for completion signals ("verified", "successfully", "complete") alongside model-based prediction.
 - **Session History**: Session persists across restarts (MapDB runner). `/history` shows past exchanges. Session summary shown on startup.
+- **Knowledge Scheduler**: Autonomous topic-based knowledge accumulator (`--scheduler` flag). Fetches configured sources on a schedule, analyzes with LLM agents, builds evolving topic reports. Reports searchable via TF-IDF bag-of-words embeddings (`/know <query>`). Gets smarter each cycle.
 - **Token Tracking & Analytics**: Comprehensive token tracking per session, agent, and model, viewable via `/stats`.
 - **Goal Tracking**: Never lose track of original user requests during complex, multi-step sessions.
 - **Granular Configuration**: Assign different models to different agents via `/config`.
@@ -219,6 +220,11 @@ Turn complete → predict completion → if P≥75%: COMPLETE
 | `/history` | Show last 10 chat exchanges from session |
 | `/history N` | Show last N exchanges |
 | `/history new` | Start a fresh session |
+| `/know <query>` | Search accumulated knowledge by TF-IDF similarity |
+| `/know topics` | List all knowledge topics with summaries |
+| `/know topic <name>` | Show full report for a specific topic |
+| `/know status` | Show knowledge scheduler status |
+| `/know refresh <name>` | Force refresh a topic (or 'all') |
 | `/status` | Show system status, endpoints, and agent assignments |
 | `/help` | Show available commands |
 | `/exit`, `/quit` | Exit the application |
@@ -304,6 +310,12 @@ With Web UI (opens browser chat at http://localhost:8080):
 ```bash
 java -jar target/mkpro-4.1.0.jar --web
 java -jar target/mkpro-4.1.0.jar --web 9090   # custom port
+```
+
+With Knowledge Scheduler (autonomous knowledge accumulation):
+```bash
+java -jar target/mkpro-4.1.0.jar --scheduler
+java -jar target/mkpro-4.1.0.jar --web --scheduler   # both web UI + scheduler
 ```
 
 Or use the native executable (Windows):
