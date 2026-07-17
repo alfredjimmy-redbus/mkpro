@@ -14,11 +14,7 @@ import java.util.List;
 
 /**
  * PeerHandshake manages the PEER_HELLO protocol.
- * On connection, instances exchange:
- * - Instance ID
- * - Project name, type, and description
- * - Available agents
- * - Primary model being used
+ * Enhanced to exchange mTLS certificate thumbprints for rotation verification.
  */
 public class PeerHandshake {
 
@@ -33,6 +29,7 @@ public class PeerHandshake {
     private final String projectDescription;
     private final List<String> availableAgents;
     private final String primaryModel;
+    private final CentralMemory centralMemory;
 
     public PeerHandshake(P2PMessageBus messageBus, String instanceId,
                           List<String> availableAgents, String primaryModel,
@@ -41,39 +38,35 @@ public class PeerHandshake {
         this.instanceId = instanceId;
         this.availableAgents = availableAgents;
         this.primaryModel = primaryModel;
+        this.centralMemory = centralMemory;
 
         // Auto-detect project
         McpProjectScanner.ProjectInfo project = McpProjectScanner.detectProject(Paths.get("").toAbsolutePath());
         this.projectName = project.root.getFileName().toString();
         this.projectType = project.type;
 
-        // Get project description from CentralMemory (set via /remember or commit_to_memory)
         String projectPath = System.getProperty("user.dir");
-        String memory = centralMemory != null ? centralMemory.getMemory(projectPath) : "";
+        String memory = centralMemory != null ? (String) centralMemory.getMemory(projectPath) : "";
         if (memory != null && !memory.isEmpty()) {
-            // Extract first 200 chars as description summary
             this.projectDescription = memory.length() > 200 ? memory.substring(0, 200) + "..." : memory;
         } else {
-            this.projectDescription = "No description available. Use /remember to add one.";
+            this.projectDescription = "No description available.";
         }
     }
 
-    /**
-     * Broadcasts a PEER_HELLO to all connected peers.
-     */
     public void sendHello() {
         messageBus.broadcast(buildHelloMessage());
     }
 
-    /**
-     * Processes an incoming PEER_HELLO message.
-     */
-    public static void handleHello(ObjectNode message) {
+    public static void handleHello(ObjectNode message, CentralMemory centralMemory) {
         String peerId = message.has("instance_id") ? message.get("instance_id").asText() : "unknown";
         String projectName = message.has("project_name") ? message.get("project_name").asText() : "unknown";
-        String projectType = message.has("project_type") ? message.get("project_type").asText() : "unknown";
-        String model = message.has("model") ? message.get("model").asText() : "unknown";
-        String description = message.has("project_description") ? message.get("project_description").asText() : "";
+        String thumbprint = message.has("cert_thumbprint") ? message.get("cert_thumbprint").asText() : "N/A";
+
+        // Store peer thumbprint in CentralMemory for SyncEngine to check "100% Mesh"
+        if (centralMemory != null) {
+            centralMemory.putMemory("peer." + peerId + ".thumbprint", thumbprint);
+        }
 
         List<String> agents = new ArrayList<>();
         if (message.has("agents") && message.get("agents").isArray()) {
@@ -83,33 +76,20 @@ public class PeerHandshake {
         }
 
         NetworkPeerRegistry registry = NetworkPeerRegistry.getInstance();
-        registry.updatePeerInfo(peerId, projectName, projectType, agents, model);
+        registry.updatePeerInfo(peerId, projectName, 
+            message.has("project_type") ? message.get("project_type").asText() : "unknown", 
+            agents, 
+            message.has("model") ? message.get("model").asText() : "unknown");
 
-        // Store description in PeerInfo
-        NetworkPeerRegistry.PeerInfo peer = registry.findByInstanceId(peerId);
-        if (peer != null) {
-            peer.setProjectDescription(description);
-        }
-
-        System.out.println(ANSI_CYAN + "  ✓ Peer hello: " + peerId +
-            " [" + projectName + "/" + projectType + "] " +
-            agents.size() + " agents, model: " + model + ANSI_RESET);
-        if (!description.isEmpty() && !"No description available. Use /remember to add one.".equals(description)) {
-            System.out.println(ANSI_CYAN + "    Project: " + (description.length() > 80 ? description.substring(0, 80) + "..." : description) + ANSI_RESET);
-        }
+        System.out.println(ANSI_CYAN + "  ✓ Peer hello: " + peerId + " [Thumbprint: " + thumbprint + "]" + ANSI_RESET);
     }
 
-    /**
-     * Builds the PEER_HELLO message.
-     */
     public ObjectNode buildHelloMessage() {
         ObjectNode hello = mapper.createObjectNode();
         hello.put("type", "PEER_HELLO");
         hello.put("instance_id", instanceId);
         hello.put("project_name", projectName);
-        hello.put("project_type", projectType);
-        hello.put("project_description", projectDescription);
-        hello.put("model", primaryModel);
+        hello.put("cert_thumbprint", messageBus.getActiveCertThumbprint());
         hello.put("timestamp", System.currentTimeMillis());
 
         ArrayNode agentsArray = mapper.createArrayNode();
