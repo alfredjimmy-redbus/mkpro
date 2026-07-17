@@ -342,6 +342,11 @@ mkpro-full.bat
 
 On first launch, select your execution runner (InMemory, MapDB, or Postgres). Use `/config` to set your default provider and model.
 
+## 📚 Additional Documentation
+
+- **[Knowledge Scheduler](README_knowledge.md)** — Autonomous topic-based knowledge accumulation, TF-IDF search, topic discovery, confidence scoring, and the self-improving flywheel.
+- **[Markov Chain Router](README_markov.md)** — Intent classification, transition probability matrix, learned patterns, stall prediction, and training pipeline.
+
 ## 🤝 Contributing
 
 We welcome contributions! Please feel free to submit Pull Requests or open issues for feature requests and bug reports.
